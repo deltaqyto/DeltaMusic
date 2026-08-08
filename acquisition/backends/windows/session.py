@@ -65,6 +65,10 @@ class SessionWatcher(SessionSource):
             self._manager = None
             return None
 
+        # SMTC hands back nulls while a session is being torn down or has not published its properties yet.
+        if properties is None or timeline is None:
+            return None
+
         return TrackInfo(
             title=(properties.title or "").strip(),
             artist=(properties.artist or "").strip(),
