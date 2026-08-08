@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 pushd "%~dp0"
-python acquire.py %*
+python -m entry.acquire %*
 set "RC=%errorlevel%"
 popd
 

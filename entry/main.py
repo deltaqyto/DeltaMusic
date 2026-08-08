@@ -9,7 +9,7 @@ from core.service import CoreService
 from frontends.core_client import CoreClient
 from frontends.frontend import Frontend
 from frontends.settings import SETTINGS_FILE
-from paths import adopt
+from entry.paths import adopt
 
 log = logging.getLogger(__name__)
 

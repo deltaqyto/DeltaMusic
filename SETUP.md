@@ -98,11 +98,11 @@ Top level:
 ## 5. Run
 
 ```bash
-python acquire.py
+python -m entry.acquire
 ```
 
 ```bash
-python acquire.py --list-devices
+python -m entry.acquire --list-devices
 ```
 
 ## Output format

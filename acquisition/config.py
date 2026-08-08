@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from paths import CONFIG_DIR, PROJECT_ROOT
+from entry.paths import CONFIG_DIR, PROJECT_ROOT
 
 from .encoding.formats import resolve
 from .encoding.naming import DEFAULT_TEMPLATE

@@ -2,7 +2,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from paths import CONFIG_DIR, PROJECT_ROOT
+from entry.paths import CONFIG_DIR, PROJECT_ROOT
 
 CONFIG_FILE = CONFIG_DIR / "config.json"
 

@@ -11,7 +11,7 @@ rem replace with python.exe for debugging issues in the console
 set "PYEXE=%~dp0.venv\Scripts\pythonw.exe"
 if not exist "%PYEXE%" set "PYEXE=%~dp0.venv\Scripts\python.exe"
 
-start "DeltaMusic" /d "%~dp0" "%PYEXE%" main.py %*
+start "DeltaMusic" /d "%~dp0" "%PYEXE%" -m entry.main %*
 
 endlocal
 exit /b 0

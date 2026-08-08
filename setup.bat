@@ -41,6 +41,9 @@ if exist "%REPO%.git" (
     if errorlevel 1 goto :fail
 )
 
+rem git leaves __pycache__ behind on update, so stale bytecode from a since-moved module can linger.
+for /f "delims=" %%d in ('dir /s /b /ad "%REPO%__pycache__" 2^>nul ^| findstr /l /v /i /c:"\.venv\"') do rd /s /q "%%d"
+
 if not exist "%REPO%.venv\Scripts\activate.bat" (
     echo Creating virtual environment
     %PY% -m venv "%REPO%.venv"

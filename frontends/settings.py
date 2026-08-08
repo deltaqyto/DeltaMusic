@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from paths import CONFIG_DIR
+from entry.paths import CONFIG_DIR
 from protocol.types.repeat_mode import RepeatMode
 
 SETTINGS_FILE = CONFIG_DIR / "settings.json"

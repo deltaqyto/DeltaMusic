@@ -1,7 +1,7 @@
 """Acquire tracks: watch a media session, record from an audio source.
 
-    python acquire.py  # run with config/acquisition_config.json
-    python acquire.py --list-devices  # show input devices and exit
+    python -m entry.acquire  # run with config/acquisition_config.json
+    python -m entry.acquire --list-devices  # show input devices and exit
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import sys
 from typing import Optional, Sequence
 
 from acquisition import DEFAULT_CONFIG_PATH, AcquisitionConfig, run, select
-from paths import adopt
+from entry.paths import adopt
 
 log = logging.getLogger("acquisition")
 
