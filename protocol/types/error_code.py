@@ -1,0 +1,10 @@
+from enum import Enum
+
+
+class ErrorCode(str, Enum):
+    NOT_FOUND = "NOT_FOUND"
+    INVALID_ARGUMENT = "INVALID_ARGUMENT"
+    CONFLICT = "CONFLICT"
+    TRACK_ABSENT = "TRACK_ABSENT"
+    PLAYBACK_FAILED = "PLAYBACK_FAILED"
+    INTERNAL = "INTERNAL"

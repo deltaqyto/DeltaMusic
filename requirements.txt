@@ -1,0 +1,13 @@
+winrt-Windows.Media.Control
+winrt-windows-foundation
+winrt-windows-foundation-collections
+
+numpy>=1.24
+sounddevice>=0.4.6      # PortAudio bindings; bundles its own DLL on Windows
+soundfile>=0.12.1       # libsndfile bindings; encodes opus/ogg/mp3/flac/wav
+
+SQLAlchemy>=2.0
+PyQt6>=6.6              # the bundled desktop frontend
+PyQt6-Frameless-Window>=0.4  # qframelesswindow; the custom title bar, with native snap and resize
+alembic>=1.13
+mutagen>=1.47           # duration out of container headers, without decoding

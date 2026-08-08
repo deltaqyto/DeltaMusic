@@ -1,0 +1,57 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Virtual environments -------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --- Tooling caches -------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- IDE ------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+
+# --- OS -------------------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Project output -------------------------------------------------------
+# Captured audio. Keep the directory, never the tracks.
+recordings/
+*.opus
+*.flac
+*.wav
+*.ogg
+# Partial writes from an interrupted save.
+*.part
+
+# --- Local operator config ------------------------------------------------
+# Written into config/ at runtime, and matched at the root too for older layouts.
+config/
+acquisition_config.json
+player_config.json
+config.json
+settings.json
+
+# --- Core's database ------------------------------------------------------
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
