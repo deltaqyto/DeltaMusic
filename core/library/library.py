@@ -279,7 +279,7 @@ class Library:
                 if row is None:
                     continue
                 row.found_on_disk = patch.found_on_disk
-                if patch.location is not None:
+                if patch.location is not None and self._location_free(session, patch.location, row.id):
                     row.location = patch.location
                 if patch.file_size is not None:
                     row.file_size = patch.file_size
@@ -287,11 +287,13 @@ class Library:
                     row.duration = patch.duration
                 touched.append(row.id)
             taken = set(session.scalars(select(SongRow.location).where(SongRow.location.is_not(None))))
+            known = set(session.scalars(select(SongRow.uuid)))
             for new in plan.insertions:
-                # The plan was settled off a snapshot, so a file that landed since then already has its row.
-                if new.location in taken:
+                # The plan was settled off a snapshot, so a file or a uuid that arrived since then already has its row.
+                if new.location in taken or new.uuid in known:
                     continue
                 taken.add(new.location)
+                known.add(new.uuid)
                 row = SongRow(
                     uuid=new.uuid,
                     name=new.name,
@@ -336,6 +338,11 @@ class Library:
     def _reject_pseudo(self, playlist_id: int) -> None:
         if playlist_id == ALL_TRACKS_ID:
             raise invalid_argument(f"'{ALL_TRACKS_NAME}' is not writable")
+
+    def _location_free(self, session: Session, location: str, song_id: int) -> bool:
+        """A rebind aimed at a location another row took while the plan was being settled is dropped."""
+        holder = session.scalar(select(SongRow.id).where(SongRow.location == location))
+        return holder is None or holder == song_id
 
     def _require_playlist(self, session: Session, playlist_id: int) -> PlaylistRow:
         row = session.get(PlaylistRow, playlist_id)

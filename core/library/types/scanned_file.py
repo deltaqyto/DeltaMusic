@@ -9,3 +9,5 @@ class ScannedFile:
 
     path: Path
     file_size: int
+    uuid: str | None
+    """What the file's tags say it is, read on the walk."""
