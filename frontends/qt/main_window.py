@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
 )
 from qframelesswindow import FramelessMainWindow  # Thanks to ZhiYiYo for https://github.com/zhiyiYo/PyQt-Frameless-Window
 
-from frontends import settings as settings_store
 from frontends.core_client import ClientError, CoreClient
 from frontends.qt.bridge import EventBridge
 from frontends.qt.icons import app_icon
@@ -41,7 +40,6 @@ log = logging.getLogger(__name__)
 ALL_TRACKS_ID = 0
 SEARCH_DEBOUNCE_MS = 200
 TICK_MS = 200
-SETTINGS_SAVE_DEBOUNCE_MS = 5000
 STATUS_CLEAR_MS = 4000
 
 
@@ -49,7 +47,6 @@ class MainWindow(FramelessMainWindow):
     def __init__(self, client: CoreClient):
         super().__init__()
         self._client = client
-        self._settings = settings_store.load()
         self._songs: dict[int, Song] = {}
         self._entry_ids: list[int] = []
         self._playlists: list[PlaylistSummary] = []
@@ -74,10 +71,6 @@ class MainWindow(FramelessMainWindow):
         self._ticker = QTimer(self)
         self._ticker.timeout.connect(self._tick)
         self._ticker.start(TICK_MS)
-
-        self._settings_timer = QTimer(self)
-        self._settings_timer.setSingleShot(True)
-        self._settings_timer.timeout.connect(self._settings.save)
 
         self._load_state()
 
@@ -199,7 +192,6 @@ class MainWindow(FramelessMainWindow):
 
     def _load_state(self) -> None:
         self._reload_playlists()
-        self._restore_session()
         try:
             state = self._client.call("get_state")
         except ClientError as failure:
@@ -207,32 +199,6 @@ class MainWindow(FramelessMainWindow):
             return
         self._apply_playback(PlaybackState.from_dict(state["playback"]))
         self._apply_queue(QueueState.from_dict(state["queue"]))
-
-    def _restore_session(self) -> None:
-        """Put the last session back. Whatever no longer resolves is quietly left out."""
-        saved = self._settings
-        self._quietly("set_volume", level=saved.volume)
-        self._quietly("set_repeat", mode=saved.repeat)
-        self._quietly("set_shuffle", enabled=saved.shuffle)
-        if saved.song_id is None:
-            return
-        if saved.playlist_id is not None:
-            result = self._quietly("get_playlist", playlist_id=saved.playlist_id)
-            song_ids = [entry["song_id"] for entry in result["playlist"]["entries"]] if result else []
-            if saved.song_id in song_ids:
-                start = song_ids.index(saved.song_id)
-                if self._quietly("play_playlist", playlist_id=saved.playlist_id, start_index=start, paused=True):
-                    return
-        # The playlist is gone, no longer holds the song, or would not open, so the song alone is the best that can be restored.
-        self._quietly("play_songs", song_ids=[saved.song_id], paused=True)
-
-    def _quietly(self, method: str, **params) -> dict | None:
-        """Quietly attempt to run a call"""
-        try:
-            return self._client.call(method, **params)
-        except ClientError as failure:
-            log.info("could not restore %s: %s", method, failure)
-            return None
 
     def _reload_playlists(self) -> None:
         try:
@@ -327,27 +293,8 @@ class MainWindow(FramelessMainWindow):
         elif self._viewing_playlist is not None:
             self._show_playlist(self._viewing_playlist)
 
-    def _remember(self, **fields) -> None:
-        """The write is debounced, so only a real change may restart the clock or it would never fire."""
-        changed = [key for key, value in fields.items() if getattr(self._settings, key) != value]
-        if not changed:
-            return
-        for key in changed:
-            setattr(self._settings, key, fields[key])
-        self._settings_timer.start(SETTINGS_SAVE_DEBOUNCE_MS)
-
-    def _remember_playback(self, playback: PlaybackState) -> None:
-        fields = {"shuffle": playback.shuffle, "repeat": playback.repeat.value}
-        # Deliberately do not save mute state, and don't allow saving 0 volume so it doesn't come back silent
-        if playback.volume > 0.0:
-            fields["volume"] = playback.volume
-        if playback.song_id is not None:
-            fields["song_id"] = playback.song_id
-        self._remember(**fields)
-
     def _apply_playback(self, playback: PlaybackState) -> None:
         self._playback = playback
-        self._remember_playback(playback)
         self._position = playback.position
         self._position_at = time.monotonic()
         self._rate = playback.rate
@@ -355,7 +302,6 @@ class MainWindow(FramelessMainWindow):
         self._highlight_current()
 
     def _apply_queue(self, queue: QueueState) -> None:
-        self._remember(playlist_id=queue.source.playlist_id if queue.source else None)
         self._queue.show_queue(queue.entries, queue.cursor)
 
     def _refresh_queue(self) -> None:
@@ -516,8 +462,5 @@ class MainWindow(FramelessMainWindow):
 
     def closeEvent(self, event) -> None:
         self._ticker.stop()
-        if self._settings_timer.isActive():
-            self._settings_timer.stop()
-            self._settings.save()
         self._bridge.stop()
         super().closeEvent(event)

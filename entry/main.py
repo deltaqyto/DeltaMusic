@@ -8,7 +8,6 @@ from core.config import CONFIG_FILE, load_or_create
 from core.service import CoreService
 from frontends.core_client import CoreClient
 from frontends.frontend import Frontend
-from frontends.settings import SETTINGS_FILE
 from entry.paths import adopt
 
 log = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ def _build_frontend(name: str, client: CoreClient) -> Frontend:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-    adopt(CONFIG_FILE, SETTINGS_FILE)
+    adopt(CONFIG_FILE)
     config = load_or_create()
 
     service: CoreService = build_core(config)

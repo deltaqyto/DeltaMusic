@@ -50,6 +50,7 @@ acquisition_config.json
 player_config.json
 config.json
 settings.json
+session.json
 
 # --- Core's database ------------------------------------------------------
 *.sqlite3

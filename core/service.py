@@ -6,6 +6,7 @@ from core.event_bus import EventBus
 from core.library.library import Library
 from core.playback.controller import PlaybackController
 from core.runtime import Runtime
+from core.session import SessionMemory
 from core.types.client import Client, EventSink
 from protocol.errors import ProtocolError, invalid_argument
 from protocol.types.error import Error
@@ -23,21 +24,32 @@ class CoreService:
     """One method per command in the protocol, and the `dispatch` door onto them.
     """
 
-    def __init__(self, library: Library, controller: PlaybackController, runtime: Runtime, bus: EventBus):
+    def __init__(
+        self,
+        library: Library,
+        controller: PlaybackController,
+        runtime: Runtime,
+        bus: EventBus,
+        memory: SessionMemory,
+    ):
         self._library = library
         self._controller = controller
         self._runtime = runtime
         self._bus = bus
+        self._memory = memory
         self._handlers: dict[str, Handler] = self._build_handlers()
 
     # Lifecycle
 
     def start(self) -> None:
         self._runtime.start()
+        self._runtime.call(lambda: self._memory.restore(self._controller, self._library))
         self._runtime.scan_later()
 
     def stop(self) -> None:
         self._runtime.stop()
+        # The runtime thread has joined, so nothing else is still touching the memory.
+        self._memory.flush()
         self._controller.close()
         self._library.close()
 

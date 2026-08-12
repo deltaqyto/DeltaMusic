@@ -10,6 +10,7 @@ from core.event_bus import EventBus
 from core.library.library import Library
 from core.library.scanner import Scanner
 from core.playback.controller import PlaybackController
+from core.session import SessionMemory
 from protocol.types.event_type import EventType
 from protocol.types.scan_phase import ScanPhase
 
@@ -26,11 +27,12 @@ class Runtime:
     """Commands from any transport and reports from the engine thread queue here for handling
     """
 
-    def __init__(self, library: Library, controller: PlaybackController, bus: EventBus, extensions: list[str]):
+    def __init__(self, library: Library, controller: PlaybackController, bus: EventBus, extensions: list[str], memory: SessionMemory):
         self._library = library
         self._controller = controller
         self._bus = bus
         self._extensions = extensions
+        self._memory = memory
 
         self._jobs: queue.Queue[tuple[Callable[[], Any], Future | None]] = queue.Queue()
         self._thread = threading.Thread(target=self._run, name="core-runtime", daemon=True)
@@ -103,6 +105,7 @@ class Runtime:
             payload["queue"] = self._controller.queue_state().to_dict()
             self._queue_revision_sent = playback.queue_revision
         self._bus.publish(EventType.HEARTBEAT, payload)
+        self._memory.observe(playback, self._controller.source_playlist_id())
 
     def _scan(self) -> None:
         songs = self.call(self._library.snapshot_songs)

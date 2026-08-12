@@ -7,6 +7,8 @@ flowchart TB
     RT["Runtime"]
     RT --> PB["PlaybackController"]
     RT --> LIB["Library"]
+    RT --> MEM["SessionMemory"]
+    MEM -.-> SESS[("session.json")]
     PB --> ENG["PlaybackEngine"]
     PB --> LIB
     PB --> BUS
@@ -19,7 +21,8 @@ flowchart TB
 ```
 
 - **CoreService** - one method per command in [client-protocol.md](client-protocol.md). The only surface a transport touches.
-- **Runtime** - applies commands and engine reports one at a time. Ticks the heartbeat.
+- **Runtime** - applies commands and engine reports one at a time. Ticks the heartbeat, and offers each beat to `SessionMemory`.
+- **SessionMemory** - the session across runs. Restored on start, written debounced as the beat reports it changing.
 - **PlaybackController** - the queue, the cursor, repeat and shuffle. See [core-playback.md](core-playback.md). It reads the library to expand a playlist into song ids, to look songs up, to count a play, and to turn a song into the file path it hands the engine.
 - **Library** - songs, playlists, and the scanner. See [core-data.md](core-data.md).
 - **PlaybackEngine** - decode and output. It is given a path and never consults the library itself.

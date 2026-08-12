@@ -79,6 +79,9 @@ class PlaybackController:
         entry = self._current_entry()
         return entry.song_id if entry else None
 
+    def source_playlist_id(self) -> int | None:
+        return self._source.playlist_id if self._source else None
+
     def close(self) -> None:
         self._engine.close()
 
