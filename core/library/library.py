@@ -54,6 +54,12 @@ class Library:
             found = {row.id: _to_song(row) for row in session.scalars(select(SongRow).where(SongRow.id.in_(song_ids)))}
         return [found[song_id] for song_id in song_ids if song_id in found]
 
+    def get_songs_by_uuid(self, uuids: Sequence[str]) -> list[Song]:
+        """Only the uuids that exist, in the order asked for."""
+        with self._sessions() as session:
+            found = {row.uuid: _to_song(row) for row in session.scalars(select(SongRow).where(SongRow.uuid.in_(uuids)))}
+        return [found[uuid] for uuid in uuids if uuid in found]
+
     def require_song(self, song_id: int) -> Song:
         with self._sessions() as session:
             row = session.get(SongRow, song_id)
@@ -114,8 +120,9 @@ class Library:
             session.commit()
         self._bus.library_changed(LibraryScope.STATISTICS, [song_id])
 
-    def path_for(self, song: Song) -> Path:
-        return self.root / song.location
+    def path_for(self, song: Song) -> Path | None:
+        """None when no file has ever been placed for this song."""
+        return self.root / song.location if song.location else None
 
     # Playlists
 
@@ -125,6 +132,7 @@ class Library:
             summaries = [
                 PlaylistSummary(
                     id=row.id,
+                    uuid=row.uuid,
                     name=row.name,
                     metadata=row.playlist_metadata or {},
                     created_at=_utc(row.created_at),
@@ -278,8 +286,14 @@ class Library:
                 if patch.duration is not None:
                     row.duration = patch.duration
                 touched.append(row.id)
+            taken = set(session.scalars(select(SongRow.location).where(SongRow.location.is_not(None))))
             for new in plan.insertions:
+                # The plan was settled off a snapshot, so a file that landed since then already has its row.
+                if new.location in taken:
+                    continue
+                taken.add(new.location)
                 row = SongRow(
+                    uuid=new.uuid,
                     name=new.name,
                     artist=new.artist,
                     duration=new.duration,
@@ -301,6 +315,7 @@ class Library:
             song_ids = list(session.scalars(select(SongRow.id).order_by(SongRow.name, SongRow.id)))
         return Playlist(
             id=ALL_TRACKS_ID,
+            uuid=None,
             name=ALL_TRACKS_NAME,
             created_at=_EPOCH,
             modified_at=_EPOCH,
@@ -311,6 +326,7 @@ class Library:
     def _all_tracks_summary(self, song_count: int) -> PlaylistSummary:
         return PlaylistSummary(
             id=ALL_TRACKS_ID,
+            uuid=None,
             name=ALL_TRACKS_NAME,
             created_at=_EPOCH,
             modified_at=_EPOCH,
@@ -391,6 +407,7 @@ def _touch(row: PlaylistRow) -> None:
 def _to_song(row: SongRow) -> Song:
     return Song(
         id=row.id,
+        uuid=row.uuid,
         name=row.name,
         artist=row.artist,
         duration=row.duration,
@@ -407,6 +424,7 @@ def _to_song(row: SongRow) -> Song:
 def _to_playlist(row: PlaylistRow) -> Playlist:
     return Playlist(
         id=row.id,
+        uuid=row.uuid,
         name=row.name,
         metadata=row.playlist_metadata or {},
         created_at=_utc(row.created_at),

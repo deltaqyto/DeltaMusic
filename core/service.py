@@ -106,6 +106,7 @@ class CoreService:
             "queue_clear": self._queue_clear,
             "list_songs": self._list_songs,
             "get_songs": self._get_songs,
+            "get_songs_by_uuid": self._get_songs_by_uuid,
             "update_song": self._update_song,
             "forget_song": self._forget_song,
             "list_playlists": self._list_playlists,
@@ -161,6 +162,10 @@ class CoreService:
 
     def _get_songs(self, params: dict[str, Any]) -> dict[str, Any]:
         songs = self._library.get_songs(_ids(params, "song_ids"))
+        return {"songs": [song.to_dict() for song in songs]}
+
+    def _get_songs_by_uuid(self, params: dict[str, Any]) -> dict[str, Any]:
+        songs = self._library.get_songs_by_uuid(_uuids(params, "uuids"))
         return {"songs": [song.to_dict() for song in songs]}
 
     def _update_song(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -259,6 +264,13 @@ def _ids(params: dict[str, Any], key: str, required: bool = True) -> list[int]:
         return [int(item) for item in value]
     except (TypeError, ValueError):
         raise invalid_argument(f"'{key}' must be a list of integers")
+
+
+def _uuids(params: dict[str, Any], key: str) -> list[str]:
+    value = params.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise invalid_argument(f"'{key}' must be a list of strings")
+    return value
 
 
 def _fields(params: dict[str, Any]) -> dict[str, Any]:

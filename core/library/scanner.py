@@ -40,7 +40,7 @@ class Scanner:
 
         for song in songs:
             done += 1
-            found = unclaimed.pop(song.location, None)
+            found = unclaimed.pop(song.location, None) if song.location else None
             if found is None:
                 missing.append(song)
                 continue
@@ -98,6 +98,9 @@ class Scanner:
 
     def _recover(self, song: Song, unclaimed: dict[str, ScannedFile], durations: dict[str, float]) -> ScannedFile | None:
         """Same name and size, else same size and duration. ANY ambiguity means no match."""
+        if song.location is None:
+            # No file was ever placed for this song, so there is nothing to recover it from.
+            return None
         wanted_name = Path(song.location).name
         by_name = [f for f in unclaimed.values() if f.path.name == wanted_name and f.file_size == song.file_size]
         if len(by_name) == 1:

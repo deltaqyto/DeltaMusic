@@ -9,6 +9,9 @@ from protocol.types.playlist_entry import PlaylistEntry
 @dataclass(frozen=True)
 class Playlist:
     id: int
+    uuid: str | None
+    """Null on `All Tracks`, which is assembled rather than stored."""
+
     name: str
     created_at: datetime
     modified_at: datetime
@@ -18,6 +21,7 @@ class Playlist:
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
+            "uuid": self.uuid,
             "name": self.name,
             "metadata": self.metadata,
             "created_at": to_iso(self.created_at),
@@ -29,6 +33,7 @@ class Playlist:
     def from_dict(raw: dict[str, Any]) -> "Playlist":
         return Playlist(
             id=raw["id"],
+            uuid=raw.get("uuid"),
             name=raw["name"],
             metadata=raw.get("metadata") or {},
             created_at=from_iso(raw["created_at"]),

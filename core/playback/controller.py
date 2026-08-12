@@ -397,13 +397,14 @@ class PlaybackController:
             self.stop()
             return False
         song = self._library.get_songs([song_id])
-        if not song or not song[0].found_on_disk:
+        path = self._library.path_for(song[0]) if song else None
+        if path is None or not song[0].found_on_disk:
             if strict:
                 raise track_absent(song_id)
             self.on_track_failed(f"song {song_id} is not on disk")
             return False
         self._duration = song[0].duration
-        if not self._engine.load(str(self._library.path_for(song[0]))):
+        if not self._engine.load(str(path)):
             # The engine has already reported the failure, and playing an engine with no stream would report it again.
             self._stop_playback()
             if strict:

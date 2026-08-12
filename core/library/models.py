@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -9,19 +10,28 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _uuid() -> str:
+    return str(uuid4())
+
+
 class Base(DeclarativeBase):
     pass
 
 
 class SongRow(Base):
     __tablename__ = "song"
+    __table_args__ = (
+        Index("ix_song_uuid", "uuid", unique=True),
+        Index("ix_song_location", "location", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    uuid: Mapped[str] = mapped_column(String, nullable=False, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False)
     artist: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
     duration: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    location: Mapped[str] = mapped_column(String, nullable=False, default="")
+    location: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     found_on_disk: Mapped[bool] = mapped_column(default=True, nullable=False)
     song_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
@@ -33,8 +43,10 @@ class SongRow(Base):
 
 class PlaylistRow(Base):
     __tablename__ = "playlist"
+    __table_args__ = (Index("ix_playlist_uuid", "uuid", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    uuid: Mapped[str] = mapped_column(String, nullable=False, default=_uuid)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     playlist_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
