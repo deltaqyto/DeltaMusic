@@ -36,9 +36,10 @@ LOOKUP_CHUNK = 400
 class Library:
     """Songs, playlists and the database."""
 
-    def __init__(self, database_path: Path, library_root: Path, bus: EventBus):
+    def __init__(self, database_path: Path, library_root: Path, bus: EventBus, private: bool = False):
         self.root = library_root
         self._bus = bus
+        self._private = private
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._engine = create_engine(f"sqlite:///{database_path}", future=True)
         _enable_wal(self._engine)
@@ -116,11 +117,15 @@ class Library:
             if row is None:
                 raise not_found(f"no song {song_id}", song_id=song_id)
             touched = {entry.playlist_id for entry in row.entries}
+            location = row.location
             session.delete(row)
             session.commit()
             for playlist_id in touched:
                 self._renumber(session, playlist_id)
             session.commit()
+        # A private library folder is reachable through the record alone, so forgetting one takes the file with it.
+        if self._private and location:
+            _delete(self.root / location)
         self._bus.library_changed(LibraryScope.SONG, [song_id])
 
     def mark_played(self, song_id: int) -> None:
@@ -551,6 +556,14 @@ def _enable_wal(engine: Any) -> None:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
+
+def _delete(path: Path) -> None:
+    """The row is already gone, so a file that will not go carries on as an orphan rather than failing the command."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as failure:
+        log.warning("could not delete %s: %s", path, failure)
 
 
 def _utc(moment: datetime | None) -> datetime | None:

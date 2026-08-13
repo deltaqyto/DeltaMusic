@@ -272,6 +272,8 @@ The named uuids of a fetch that named none are everything the peer's answer carr
 
 A named uuid the peer does not carry is dropped from the plan and listed in the result. A fetch whose plan is empty finishes as one whose plan was satisfied.
 
+A plan is settled only when its files fit. The sizes of the files it would pull are summed with the bytes the transfer queue has still to move, and measured against the free space of the library folder's filesystem less `transfer_space_reserve_bytes`. A plan that does not fit is refused with `INSUFFICIENT_SPACE` before any row is written.
+
 ### Rows first
 
 Rows are written before any file moves, so a playlist is whole and playable as far as its tracks allow while the rest are still arriving. Writing them moves `library_revision` and emits `LibraryChanged` like any other library write.
@@ -461,14 +463,15 @@ A fetch job's result is what the merge did:
 
 ### Errors
 
-| Code               | Meaning                                                         |
-|--------------------|-----------------------------------------------------------------|
-| `PEER_UNKNOWN`     | No such peer                                                    |
-| `PEER_UNREACHABLE` | The peer did not answer, at its cached address or by discovery  |
-| `PAIRING_CLOSED`   | The target is not accepting pairing                             |
-| `PAIRING_REFUSED`  | The proof did not verify, or the attempts are spent             |
-| `UNTRUSTED_PEER`   | No record pins that certificate                                 |
-| `TRANSFER_FAILED`  | Truncated, or the digest did not match                          |
+| Code                 | Meaning                                                        |
+|----------------------|----------------------------------------------------------------|
+| `PEER_UNKNOWN`       | No such peer                                                   |
+| `PEER_UNREACHABLE`   | The peer did not answer, at its cached address or by discovery |
+| `PAIRING_CLOSED`     | The target is not accepting pairing                            |
+| `PAIRING_REFUSED`    | The proof did not verify, or the attempts are spent            |
+| `UNTRUSTED_PEER`     | No record pins that certificate                                |
+| `TRANSFER_FAILED`    | Truncated, or the digest did not match                         |
+| `INSUFFICIENT_SPACE` | The files a plan would pull do not fit in the library folder   |
 
 ## Threads
 
@@ -483,15 +486,16 @@ The peer side runs beside the runtime rather than on it.
 
 Flat fields on `Config`
 
-| Field                      | Default      |
-|----------------------------|--------------|
-| `peer_enabled`             | `true`       |
-| `peer_port`                | `47822`      |
-| `core_name`                | the hostname |
-| `visibility_seconds`       | `300`        |
-| `max_concurrent_transfers` | `2`          |
-| `remote_control_enabled`   | `false`      |
-| `remote_control_port`      | `47821`      |
+| Field                          | Default      |
+|--------------------------------|--------------|
+| `peer_enabled`                 | `true`       |
+| `peer_port`                    | `47822`      |
+| `core_name`                    | the hostname |
+| `visibility_seconds`           | `300`        |
+| `max_concurrent_transfers`     | `2`          |
+| `transfer_space_reserve_bytes` | `1073741824` |
+| `remote_control_enabled`       | `false`      |
+| `remote_control_port`          | `47821`      |
 
 ## Where this lives
 

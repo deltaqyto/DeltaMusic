@@ -54,3 +54,7 @@ def untrusted_peer(message: str, **detail: Any) -> ProtocolError:
 
 def transfer_failed(message: str, **detail: Any) -> ProtocolError:
     return ProtocolError(ErrorCode.TRANSFER_FAILED, message, detail)
+
+
+def insufficient_space(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.INSUFFICIENT_SPACE, message, detail)

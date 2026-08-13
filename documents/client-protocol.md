@@ -36,6 +36,20 @@ The peer commands, their jobs and their events are in [peer-protocol.md](peer-pr
 
 Call `get_state` on connect. It returns a complete snapshot.
 
+## Features
+
+`get_state` carries `features`, naming what is true of this core. It does not change within a run.
+
+```json
+{"features": ["private_library"]}
+```
+
+| Name              | Meaning                                  |
+|-------------------|------------------------------------------|
+| `private_library` | The library folder is private            |
+
+A client ignores a name it does not know.
+
 ## Revisions
 
 - `queue_revision` - moves on any edit to the queue, core's own trim and refill included.
@@ -167,7 +181,7 @@ Either command returns the resulting `playback`, so a client reads both values b
 - `update_song` takes `name`, `artist`, `metadata`. The file on disk keeps its name.
 - `update_playlist` takes `name`, `metadata`.
 - `playlist_remove` and `playlist_move` take entry ids, which arrive with the playlist. Duplicates are allowed.
-- `forget_song` drops the record and every playlist entry pointing at it. The file is untouched.
+- `forget_song` drops the record and every playlist entry pointing at it. The file is untouched, except on a core whose library folder is private, which deletes the file with the record.
 - `All Tracks` lists and resolves like any playlist, and rejects every write. Its entry ids are synthetic negative integers to avoid conflict.
 
 ```json

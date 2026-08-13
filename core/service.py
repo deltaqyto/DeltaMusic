@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -58,6 +58,7 @@ class CoreService:
         bus: EventBus,
         memory: SessionMemory,
         peer: PeerSide | None = None,
+        features: Sequence[str] = (),
     ):
         self._library = library
         self._controller = controller
@@ -65,6 +66,7 @@ class CoreService:
         self._bus = bus
         self._memory = memory
         self._peer = peer
+        self._features = list(features)
         self._peer_server: "PeerServer | None" = None
         self._handlers: dict[str, Handler] = self._build_handlers()
 
@@ -191,6 +193,7 @@ class CoreService:
             playback=self._controller.playback_state(),
             queue=self._controller.queue_state(),
             library_revision=self._bus.library_revision,
+            features=self._features,
         )
         return state.to_dict()
 

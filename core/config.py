@@ -18,11 +18,13 @@ class Config:
     audio_extensions: list[str] = field(default_factory=lambda: list(AUDIO_EXTENSIONS))
     frontends: list[str] = field(default_factory=lambda: ["qt"])
     initial_volume: float = 0.8
+    private_library: bool = False
     peer_enabled: bool = True
     peer_port: int = 47822
     core_name: str = field(default_factory=socket.gethostname)
     visibility_seconds: int = 300
     max_concurrent_transfers: int = 2
+    transfer_space_reserve_bytes: int = 1 << 30  # 1 GB
     remote_control_enabled: bool = False
     remote_control_port: int = 47821
 

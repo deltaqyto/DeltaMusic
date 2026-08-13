@@ -28,7 +28,7 @@ def build_core(config: Config, engine: PlaybackEngine | None = None) -> CoreServ
 
     bus = EventBus()
     memory = SessionMemory()
-    library = Library(config.database_path, config.library_path, bus)
+    library = Library(config.database_path, config.library_path, bus, config.private_library)
     controller = PlaybackController(library, engine, bus, config.initial_volume)
     runtime = Runtime(library, controller, bus, config.audio_extensions, memory)
 
@@ -37,11 +37,16 @@ def build_core(config: Config, engine: PlaybackEngine | None = None) -> CoreServ
     engine.on_failed(lambda message: runtime.post(lambda: controller.on_track_failed(message)))
 
     peer = _build_peer(config, bus, library, runtime)
-    service = CoreService(library, controller, runtime, bus, memory, peer)
+    service = CoreService(library, controller, runtime, bus, memory, peer, _features(config))
     if peer is not None:
         server = PeerServer(service, peer.identity, peer.registry, peer.discovery, peer.pairing, config.peer_port)
         service.use_peer_server(server)
     return service
+
+
+def _features(config: Config) -> list[str]:
+    """What `get_state` names as true of this core."""
+    return ["private_library"] if config.private_library else []
 
 
 def _build_peer(config: Config, bus: EventBus, library: Library, runtime: Runtime) -> PeerSide | None:
@@ -54,7 +59,7 @@ def _build_peer(config: Config, bus: EventBus, library: Library, runtime: Runtim
         pairing = Pairing(identity, registry, discovery, bus, config.peer_port, config.visibility_seconds)
         discovery.watch(pairing.discovered)
         transfers = Transfers(library, runtime, config.max_concurrent_transfers)
-        jobs = PeerJobs(library, runtime, identity, registry, discovery, transfers, bus)
+        jobs = PeerJobs(library, runtime, identity, registry, discovery, transfers, bus, config.transfer_space_reserve_bytes)
         return PeerSide(identity, registry, discovery, pairing, transfers, jobs)
     except Exception:
         # A core with no usable identity still plays music.

@@ -88,6 +88,11 @@ class Transfers:
                     self._pending.remove(transfer)
                 self._live.pop(transfer.song.uuid, None)
 
+    def outstanding(self) -> int:
+        """What the queue has still to move, queued and running both, counted once per track."""
+        with self._lock:
+            return sum(max(transfer.bytes_total - transfer.bytes_done, 0) for transfer in self._live.values())
+
     def active_for(self, job_id: str) -> list[dict[str, Any]]:
         """The transfers running for one job, as a progress event carries them."""
         with self._lock:

@@ -1,5 +1,6 @@
 import itertools
 import logging
+import shutil
 import threading
 from functools import partial
 from typing import Any
@@ -12,7 +13,7 @@ from core.peer.link import PeerLink
 from core.peer.registry import PeerRegistry
 from core.peer.transfers import Transfers
 from core.runtime import Runtime
-from protocol.errors import ProtocolError, invalid_argument
+from protocol.errors import ProtocolError, insufficient_space, invalid_argument
 from protocol.types.error import Error
 from protocol.types.error_code import ErrorCode
 from protocol.types.event_type import EventType
@@ -42,6 +43,7 @@ class PeerJobs:
         discovery: Discovery,
         transfers: Transfers,
         bus: EventBus,
+        space_reserve: int = 0,
     ):
         self._library = library
         self._runtime = runtime
@@ -50,6 +52,7 @@ class PeerJobs:
         self._discovery = discovery
         self._transfers = transfers
         self._bus = bus
+        self._space_reserve = space_reserve
 
         self._lock = threading.Condition()
         self._jobs: dict[str, _Job] = {}
@@ -187,6 +190,7 @@ class PeerJobs:
 
         local = {song.uuid: song for song in self._library.snapshot_songs()}
         files = [songs[uuid] for uuid in tracks if songs[uuid].available and not _is_held(local.get(uuid))]
+        self._require_space(files)
 
         with self._lock:
             job.items_total = len(files)
@@ -203,6 +207,13 @@ class PeerJobs:
             self._transfers.submit(job.id, link, song)
         self._wait_out(job)
         return job.result()
+
+    def _require_space(self, files: list[PeerSong]) -> None:
+        """A plan is settled only when its files fit beside what the queue has still to move."""
+        wanted = sum(song.file_size for song in files) + self._transfers.outstanding()
+        usable = max(shutil.disk_usage(self._library.root).free - self._space_reserve, 0)
+        if wanted > usable:
+            raise insufficient_space(f"the plan needs {wanted} bytes and {usable} are free", wanted=wanted, usable=usable)
 
     def _planned_playlists(
         self, job: "_Job", link: PeerLink, songs: dict[str, PeerSong], uuids: list[str] | None

@@ -5,6 +5,7 @@ Core keeps the record of every song on the machine, organises them into playlist
 ## Vocabulary
 
 - **Track** - an audio file in the library folder.
+- **Private library folder** - a library folder no other program can reach. A track arrives in one only by a peer fetch.
 - **Song** - the library's record of a track: its uuid, title, artist, duration, file size, location, whether the file is currently present, and a free-form metadata blob.
 - **Playlist** - a named, ordered list of songs. Duplicates are allowed. Carries its uuid, creation and modification times, and its own metadata blob.
 - **Library** - every playlist, plus `All Tracks`, which core assembles from every song it knows of.
