@@ -4,6 +4,10 @@ A frontend is a client. It talks to core through `CoreClient` and holds no libra
 
 [frontend-peers.md](frontend-peers.md) covers browsing peers, pulling from them, and admitting them.
 
+## Features
+
+The frontend takes `features` from the `get_state` it calls on attach and holds it for the run. `private_library` changes what the forget confirmation says, since forgetting a song on such a core deletes its file.
+
 ## The queue pane
 
 The pane renders `QueueState` as it arrives. Entries ahead of the cursor split at the origin boundary, `user` entries drawn at full weight and the `autofill` tail dimmed, so what was asked for reads apart from what core guessed. 

@@ -38,11 +38,13 @@ from protocol.types.library_scope import LibraryScope
 from protocol.types.playback_state import PlaybackState
 from protocol.types.playlist_summary import PlaylistSummary
 from protocol.types.queue_state import QueueState
+from protocol.types.session_state import SessionState
 from protocol.types.song import Song
 
 log = logging.getLogger(__name__)
 
 ALL_TRACKS_ID = 0
+PRIVATE_LIBRARY = "private_library"
 SEARCH_DEBOUNCE_MS = 200
 TICK_MS = 200
 STATUS_CLEAR_MS = 4000
@@ -56,6 +58,7 @@ class MainWindow(FramelessMainWindow):
         self._entry_ids: list[int] = []
         self._playlists: list[PlaylistSummary] = []
         self._playback: PlaybackState | None = None
+        self._features: set[str] = set()
         self._viewing = ViewTarget.local(ALL_TRACKS_ID)
         self._position = 0.0
         self._position_at = time.monotonic()
@@ -226,12 +229,13 @@ class MainWindow(FramelessMainWindow):
         self._reload_playlists()
         self._book.start()
         try:
-            state = self._client.call("get_state")
+            state = SessionState.from_dict(self._client.call("get_state"))
         except ClientError as failure:
             self._set_status(str(failure))
             return
-        self._apply_playback(PlaybackState.from_dict(state["playback"]))
-        self._apply_queue(QueueState.from_dict(state["queue"]))
+        self._features = set(state.features)
+        self._apply_playback(state.playback)
+        self._apply_queue(state.queue)
 
     def _reload_playlists(self) -> None:
         try:
@@ -638,8 +642,8 @@ class MainWindow(FramelessMainWindow):
             self._command("playlist_remove", entry_ids=entry_ids)
 
     def _forget_songs(self, songs: list[Song]) -> None:
-        question = f"Drop {len(songs)} song(s) from the library? The files are untouched."
-        if not Confirmation.ask(self, "Forget songs", question):
+        fate = "Their files are deleted with them." if PRIVATE_LIBRARY in self._features else "The files are untouched."
+        if not Confirmation.ask(self, "Forget songs", f"Drop {len(songs)} song(s) from the library? {fate}"):
             return
         for song in songs:
             self._command("forget_song", song_id=song.id)

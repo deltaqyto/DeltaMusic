@@ -4,9 +4,11 @@ from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from frontends.core_client import ClientError, CoreClient
+from frontends.qt.formatting import bytes_size
 from frontends.qt.types.job_row import JobRow
 from frontends.qt.types.snapshot import ListedPlaylist, ListedSong, Snapshot
 from protocol.timestamps import from_iso
+from protocol.types.error_code import ErrorCode
 from protocol.types.event import Event
 from protocol.types.event_type import EventType
 from protocol.types.library_scope import LibraryScope
@@ -394,4 +396,9 @@ class PeerBook(QObject):
     def _message(error: dict | None) -> str:
         if not error:
             return "the job failed"
+        if error.get("code") == ErrorCode.INSUFFICIENT_SPACE.value:
+            detail = error.get("detail") or {}
+            wanted = bytes_size(int(detail.get("wanted") or 0))
+            usable = bytes_size(int(detail.get("usable") or 0))
+            return f"not enough room: the plan needs {wanted} and {usable} is free"
         return f"{error.get('code', 'INTERNAL')}: {error.get('message', '')}".strip()
