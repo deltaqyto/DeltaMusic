@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,8 @@ from core.library.models import PlaylistEntryRow, PlaylistRow, SongRow
 from core.library.types.scan_plan import ScanPlan
 from protocol.errors import conflict, invalid_argument, not_found
 from protocol.types.library_scope import LibraryScope
+from protocol.types.peer_playlist import PeerPlaylist
+from protocol.types.peer_song import PeerSong
 from protocol.types.playlist import Playlist
 from protocol.types.playlist_entry import PlaylistEntry
 from protocol.types.playlist_summary import PlaylistSummary
@@ -25,6 +28,9 @@ log = logging.getLogger(__name__)
 ALL_TRACKS_ID = 0
 ALL_TRACKS_NAME = "All Tracks"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# sqlite binds one parameter per value, so a long `IN` is asked for a chunk at a time.
+LOOKUP_CHUNK = 400
 
 
 class Library:
@@ -47,6 +53,13 @@ class Library:
     def snapshot_songs(self) -> list[Song]:
         with self._sessions() as session:
             return [_to_song(row) for row in session.scalars(select(SongRow)).all()]
+
+    def counts(self) -> tuple[int, int]:
+        """How many songs and how many stored playlists."""
+        with self._sessions() as session:
+            songs = session.scalar(select(func.count()).select_from(SongRow)) or 0
+            playlists = session.scalar(select(func.count()).select_from(PlaylistRow)) or 0
+        return songs, playlists
 
     def get_songs(self, song_ids: Sequence[int]) -> list[Song]:
         """Only the ids that exist, in the order asked for."""
@@ -258,6 +271,105 @@ class Library:
         self._bus.library_changed(LibraryScope.PLAYLIST, [entry.playlist_id])
         return playlist
 
+    def peer_playlists(self) -> list[PeerPlaylist]:
+        """Every stored playlist, with its membership as track uuids in order. `All Tracks` is assembled, so it is not here."""
+        with self._sessions() as session:
+            rows = session.scalars(select(PlaylistRow).order_by(PlaylistRow.name)).all()
+            return [
+                PeerPlaylist(
+                    uuid=row.uuid,
+                    name=row.name,
+                    metadata=row.playlist_metadata or {},
+                    created_at=_utc(row.created_at),
+                    modified_at=_utc(row.modified_at),
+                    songs=[entry.song.uuid for entry in row.entries],
+                )
+                for row in rows
+            ]
+
+    # Merging what a peer serves
+
+    def merge_peer_songs(self, songs: Sequence[PeerSong]) -> tuple[int, int]:
+        """Rows for the uuids this core does not hold, and the sender's fields onto the ones it does. Gives back how many were inserted and how many updated."""
+        if not songs:
+            return 0, 0
+        inserted = 0
+        touched: list[int] = []
+        with self._sessions() as session:
+            held = self._rows_by_uuid(session, [song.uuid for song in songs])
+            for song in songs:
+                row = held.get(song.uuid)
+                if row is None:
+                    row = SongRow(
+                        uuid=song.uuid,
+                        name=song.name,
+                        artist=song.artist,
+                        duration=song.duration,
+                        file_size=song.file_size,
+                        location=None,
+                        found_on_disk=False,
+                        song_metadata=song.metadata or {},
+                    )
+                    session.add(row)
+                    session.flush()
+                    held[song.uuid] = row
+                    inserted += 1
+                else:
+                    row.name = song.name
+                    row.artist = song.artist
+                    row.song_metadata = song.metadata or {}
+                    # These two describe the file rather than the song, so they stay while a file is held.
+                    if not row.found_on_disk:
+                        row.duration = song.duration
+                        row.file_size = song.file_size
+                touched.append(row.id)
+            session.commit()
+        self._bus.library_changed(LibraryScope.SONG, touched)
+        return inserted, len(touched) - inserted
+
+    def merge_peer_playlist(self, playlist: PeerPlaylist) -> tuple[bool, int]:
+        """Creates or updates by uuid, replacing the entry list with the sender's. Gives back whether it was created and how many entries the replacement dropped."""
+        with self._sessions() as session:
+            row = session.scalar(select(PlaylistRow).where(PlaylistRow.uuid == playlist.uuid))
+            created = row is None
+            if row is None:
+                row = PlaylistRow(
+                    uuid=playlist.uuid,
+                    name=self._free_name(session, playlist.name, None),
+                    playlist_metadata=playlist.metadata or {},
+                    created_at=playlist.created_at,
+                    modified_at=playlist.modified_at,
+                )
+                session.add(row)
+                session.flush()
+            else:
+                row.name = self._free_name(session, playlist.name, row.id)
+                row.playlist_metadata = playlist.metadata or {}
+                row.modified_at = playlist.modified_at
+            dropped = self._replace_entries(session, row, playlist.songs)
+            session.commit()
+            playlist_id = row.id
+        self._bus.library_changed(LibraryScope.PLAYLIST, [playlist_id])
+        return created, dropped
+
+    def place_file(self, uuid: str, location: str, file_size: int) -> int | None:
+        """Where a landed file went, onto the row that uuid names. None when there is no row to write it to."""
+        with self._sessions() as session:
+            row = session.scalar(select(SongRow).where(SongRow.uuid == uuid))
+            if row is None:
+                log.warning("a file landed for %s, which has no row here", uuid)
+                return None
+            if not self._location_free(session, location, row.id):
+                log.warning("%s is held by another row, so %s keeps no location", location, uuid)
+                return None
+            row.location = location
+            row.file_size = file_size
+            row.found_on_disk = True
+            session.commit()
+            song_id = row.id
+        self._bus.library_changed(LibraryScope.SONG, [song_id])
+        return song_id
+
     def song_ids_in(self, playlist_id: int) -> list[int]:
         """The source list for playback, snapshot at the moment it is asked for."""
         if playlist_id == ALL_TRACKS_ID:
@@ -343,6 +455,46 @@ class Library:
         """A rebind aimed at a location another row took while the plan was being settled is dropped."""
         holder = session.scalar(select(SongRow.id).where(SongRow.location == location))
         return holder is None or holder == song_id
+
+    def _rows_by_uuid(self, session: Session, uuids: Sequence[str]) -> dict[str, SongRow]:
+        found: dict[str, SongRow] = {}
+        unique = list(dict.fromkeys(uuids))
+        for start in range(0, len(unique), LOOKUP_CHUNK):
+            batch = unique[start : start + LOOKUP_CHUNK]
+            found.update({row.uuid: row for row in session.scalars(select(SongRow).where(SongRow.uuid.in_(batch)))})
+        return found
+
+    def _free_name(self, session: Session, name: str, playlist_id: int | None) -> str:
+        """The sender's name, suffixed while another playlist or the reserved name holds it."""
+        wanted = (name or "").strip() or "playlist"
+        candidate = wanted
+        attempt = 2
+        while candidate == ALL_TRACKS_NAME or self._name_taken(session, candidate, playlist_id):
+            candidate = f"{wanted} ({attempt})"
+            attempt += 1
+        return candidate
+
+    @staticmethod
+    def _name_taken(session: Session, name: str, playlist_id: int | None) -> bool:
+        holder = session.scalar(select(PlaylistRow.id).where(PlaylistRow.name == name))
+        return holder is not None and holder != playlist_id
+
+    def _replace_entries(self, session: Session, row: PlaylistRow, uuids: Sequence[str]) -> int:
+        """The sender's membership, in the sender's order. Gives back how many local entries it dropped."""
+        ids = {uuid: held.id for uuid, held in self._rows_by_uuid(session, uuids).items()}
+        wanted = [ids[uuid] for uuid in uuids if uuid in ids]
+        before = Counter(entry.song_id for entry in row.entries)
+        after = Counter(wanted)
+        dropped = sum(max(0, count - after.get(song_id, 0)) for song_id, count in before.items())
+        for entry in list(row.entries):
+            session.delete(entry)
+        session.flush()
+        session.add_all(
+            [PlaylistEntryRow(playlist_id=row.id, song_id=song_id, position=position) for position, song_id in enumerate(wanted)]
+        )
+        session.flush()
+        session.refresh(row)
+        return dropped
 
     def _require_playlist(self, session: Session, playlist_id: int) -> PlaylistRow:
         row = session.get(PlaylistRow, playlist_id)

@@ -1,9 +1,11 @@
 import logging
 from collections.abc import Callable
-from typing import Any
+from pathlib import Path
+from typing import Any, TYPE_CHECKING
 
 from core.event_bus import EventBus
 from core.library.library import Library
+from core.peer.types.peer_side import PeerSide
 from core.playback.controller import PlaybackController
 from core.runtime import Runtime
 from core.session import SessionMemory
@@ -11,13 +13,37 @@ from core.types.client import Client, EventSink
 from protocol.errors import ProtocolError, invalid_argument
 from protocol.types.error import Error
 from protocol.types.error_code import ErrorCode
+from protocol.types.origin import Origin
+from protocol.types.peer_playlist import PeerPlaylist
+from protocol.types.peer_song import PeerSong
 from protocol.types.request import Request
 from protocol.types.response import Response
 from protocol.types.session_state import SessionState
+from protocol.version import PEER_PROTOCOL_VERSION
+
+if TYPE_CHECKING:
+    from core.peer.server import PeerServer
 
 log = logging.getLogger(__name__)
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
+
+# Pairing emits a code for a frontend to display.
+LOCAL_ONLY_METHODS = frozenset(
+    {
+        "pairing_status",
+        "pairing_publish",
+        "pairing_conceal",
+        "pairing_candidates",
+        "pairing_request",
+        "pairing_submit_code",
+        "pairing_cancel",
+        "peer_forget",
+    }
+)
+
+# These reach across the network and touch no library state, so holding the runtime thread for them would stall playback.
+DIRECT_METHODS = frozenset({"pairing_request", "pairing_submit_code"})
 
 
 class CoreService:
@@ -31,38 +57,54 @@ class CoreService:
         runtime: Runtime,
         bus: EventBus,
         memory: SessionMemory,
+        peer: PeerSide | None = None,
     ):
         self._library = library
         self._controller = controller
         self._runtime = runtime
         self._bus = bus
         self._memory = memory
+        self._peer = peer
+        self._peer_server: "PeerServer | None" = None
         self._handlers: dict[str, Handler] = self._build_handlers()
 
     # Lifecycle
+
+    def use_peer_server(self, server: "PeerServer") -> None:
+        """The peer listener answers by asking this service, so it is handed over once both exist."""
+        self._peer_server = server
 
     def start(self) -> None:
         self._runtime.start()
         self._runtime.call(lambda: self._memory.restore(self._controller, self._library))
         self._runtime.scan_later()
+        if self._peer is not None:
+            self._peer.jobs.start()
+        if self._peer_server is not None:
+            self._peer_server.start()
 
     def stop(self) -> None:
+        if self._peer_server is not None:
+            self._peer_server.stop()
+        # Jobs and transfers write through the runtime, so they let go of it before it stops.
+        if self._peer is not None:
+            self._peer.jobs.stop()
         self._runtime.stop()
         # The runtime thread has joined, so nothing else is still touching the memory.
         self._memory.flush()
         self._controller.close()
         self._library.close()
 
-    def attach(self, name: str, sink: EventSink) -> Client:
-        """A transport takes a client handle here. The sink is called on the runtime thread."""
-        return self._bus.attach(name, sink)
+    def attach(self, name: str, sink: EventSink, origin: Origin = Origin.LOCAL) -> Client:
+        """A transport takes a client handle here. The sink is called on the thread that raised the event."""
+        return self._bus.attach(name, sink, origin)
 
     def detach(self, client: Client) -> None:
         self._bus.detach(client)
 
     # Dispatch
 
-    def dispatch(self, envelope: dict[str, Any]) -> dict[str, Any]:
+    def dispatch(self, envelope: dict[str, Any], origin: Origin = Origin.LOCAL) -> dict[str, Any]:
         try:
             request = Request.from_dict(envelope)
         except (KeyError, TypeError) as failure:
@@ -70,12 +112,12 @@ class CoreService:
             return Response.failed(str(envelope.get("id", "")), error).to_dict()
 
         handler = self._handlers.get(request.method)
-        if handler is None:
+        if handler is None or (origin is Origin.NETWORK and request.method in LOCAL_ONLY_METHODS):
             error = Error(code=ErrorCode.INVALID_ARGUMENT, message=f"no such method '{request.method}'")
             return Response.failed(request.id, error).to_dict()
 
         try:
-            result = self._runtime.call(lambda: handler(request.params))
+            result = handler(request.params) if request.method in DIRECT_METHODS else self._runtime.call(lambda: handler(request.params))
         except ProtocolError as failure:
             return Response.failed(request.id, failure.error).to_dict()
         except Exception as failure:
@@ -85,7 +127,7 @@ class CoreService:
         return Response.succeeded(request.id, result).to_dict()
 
     def _build_handlers(self) -> dict[str, Handler]:
-        return {
+        handlers: dict[str, Handler] = {
             "get_state": self._get_state,
             "play": lambda params: self._playback(self._controller.play()),
             "pause": lambda params: self._playback(self._controller.pause()),
@@ -118,6 +160,29 @@ class CoreService:
             "playlist_remove": self._playlist_remove,
             "playlist_move": self._playlist_move,
         }
+        # A core with no peer identity carries no peer surface, so those methods read as unknown.
+        if self._peer is not None:
+            peer = self._peer
+            handlers.update(
+                {
+                    "peer_list": self._peer_list,
+                    "peer_forget": self._peer_forget,
+                    "pairing_status": lambda params: peer.pairing.window(),
+                    "pairing_publish": lambda params: peer.pairing.publish(_number(params, "seconds")),
+                    "pairing_conceal": lambda params: peer.pairing.conceal(),
+                    "pairing_candidates": self._pairing_candidates,
+                    "pairing_request": self._pairing_request,
+                    "pairing_submit_code": self._pairing_submit_code,
+                    "pairing_cancel": self._pairing_cancel,
+                    "peer_list_songs": lambda params: {"job_id": peer.jobs.list_songs(_text(params, "peer_id"))},
+                    "peer_list_playlists": lambda params: {"job_id": peer.jobs.list_playlists(_text(params, "peer_id"))},
+                    "peer_fetch_songs": self._peer_fetch_songs,
+                    "peer_fetch_playlists": self._peer_fetch_playlists,
+                    "peer_jobs": lambda params: {"jobs": [job.to_dict() for job in peer.jobs.jobs()]},
+                    "peer_job_cancel": self._peer_job_cancel,
+                }
+            )
+        return handlers
 
     # Handlers
 
@@ -209,6 +274,64 @@ class CoreService:
         playlist = self._library.playlist_move(_integer(params, "entry_id"), _integer(params, "to_index"))
         return {"playlist": playlist.to_dict()}
 
+    # Peers
+
+    def _peer_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {"peers": [peer.to_dict() for peer in self._peer.registry.peers()]}
+
+    def _peer_forget(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._peer.registry.forget(_text(params, "peer_id"))
+        return {}
+
+    def _pairing_candidates(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {"candidates": [candidate.to_dict() for candidate in self._peer.pairing.candidates()]}
+
+    def _pairing_request(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._peer.pairing.request(_text(params, "core_id"), _optional_text(params, "address"))
+
+    def _pairing_submit_code(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._peer.pairing.submit_code(_text(params, "session_id"), _text(params, "code"))
+
+    def _pairing_cancel(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._peer.pairing.cancel(_text(params, "session_id"))
+        return {}
+
+    def _peer_fetch_songs(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {"job_id": self._peer.jobs.fetch_songs(_text(params, "peer_id"), _optional_uuids(params, "uuids"))}
+
+    def _peer_fetch_playlists(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {"job_id": self._peer.jobs.fetch_playlists(_text(params, "peer_id"), _optional_uuids(params, "uuids"))}
+
+    def _peer_job_cancel(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._peer.jobs.cancel(_text(params, "job_id"))
+        return {}
+
+    # What the peer listener serves. These read, so they answer on the calling thread.
+
+    def peer_hello(self) -> dict[str, Any]:
+        songs, playlists = self._library.counts()
+        return {
+            "id": self._peer.identity.uuid,
+            "name": self._peer.identity.name,
+            "version": PEER_PROTOCOL_VERSION,
+            "library_revision": self._bus.library_revision,
+            "songs": songs,
+            "playlists": playlists,
+        }
+
+    def peer_songs(self) -> list[PeerSong]:
+        return [PeerSong.from_song(song) for song in self._library.snapshot_songs()]
+
+    def peer_playlists(self) -> list[PeerPlaylist]:
+        return self._library.peer_playlists()
+
+    def peer_track(self, uuid: str) -> Path | None:
+        """The file behind a track uuid. None when this core holds no bytes to serve for it."""
+        songs = self._library.get_songs_by_uuid([uuid])
+        if not songs or not songs[0].found_on_disk:
+            return None
+        return self._library.path_for(songs[0])
+
     @staticmethod
     def _playback(state: Any) -> dict[str, Any]:
         return {"playback": state.to_dict()}
@@ -245,6 +368,12 @@ def _text(params: dict[str, Any], key: str) -> str:
     return value
 
 
+def _optional_text(params: dict[str, Any], key: str) -> str | None:
+    if params.get(key) is None:
+        return None
+    return _text(params, key)
+
+
 def _flag(params: dict[str, Any], key: str) -> bool:
     value = params.get(key)
     if not isinstance(value, bool):
@@ -271,6 +400,13 @@ def _uuids(params: dict[str, Any], key: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise invalid_argument(f"'{key}' must be a list of strings")
     return value
+
+
+def _optional_uuids(params: dict[str, Any], key: str) -> list[str] | None:
+    """Naming nothing takes everything the peer carries, so an absent list is not an empty one."""
+    if params.get(key) is None:
+        return None
+    return _uuids(params, key)
 
 
 def _fields(params: dict[str, Any]) -> dict[str, Any]:

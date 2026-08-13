@@ -6,11 +6,12 @@ One sqlite database, in the library folder alongside the tracks it describes.
 erDiagram
     SONG {
         int id PK
+        string uuid UK
         string name
         string artist
         float duration
         int file_size
-        string location "relative to library root"
+        string location UK "relative to library root, null until a file lands"
         bool found_on_disk
         json metadata "client-owned blob"
         datetime added_at
@@ -19,6 +20,7 @@ erDiagram
     }
     PLAYLIST {
         int id PK
+        string uuid UK
         string name UK
         json metadata "client-owned blob"
         datetime created_at
@@ -39,6 +41,8 @@ In addition, the backend will construct a pseudo playlist 'All Tracks' in memory
 Its id is the reserved 0, which is what a client passes to `get_playlist` or `play_playlist` to fetch or play it. Both the reserved id and the reserved name are refused by every write with `INVALID_ARGUMENT`.
 Its entries are synthesised rather than read from `playlist_entry`, and each entry id is the negation of the song id. Real entry ids are positive, so an `All Tracks` entry id never names a stored row.
 
+The uuid a song and a playlist carry, the tag a track is stamped with, and the rules a location is claimed under are in [peer-protocol.md](peer-protocol.md).
+
 
 ## Scanning
 
@@ -53,8 +57,10 @@ flowchart TD
     MATCH -->|no| NEWFILE["file with no song"]
 
     START --> GONE["songs whose path is empty"]
-    GONE --> BYNAME{"one unclaimed file with<br/>the same name and size?"}
-    BYNAME -->|yes| REBIND["update location<br/>found_on_disk = true"]
+    GONE --> BYUUID{"an unclaimed file<br/>stamped with its uuid?"}
+    BYUUID -->|yes| REBIND["update location<br/>found_on_disk = true"]
+    BYUUID -->|no| BYNAME{"one unclaimed file with<br/>the same name and size?"}
+    BYNAME -->|yes| REBIND
     BYNAME -->|no| BYSIZE{"one unclaimed file with<br/>the same size and duration?"}
     BYSIZE -->|yes| REBIND
     BYSIZE -->|no| LOST["found_on_disk = false"]
@@ -66,6 +72,7 @@ flowchart TD
 
 A missing track sets `found_on_disk` false and leaves the song record and its playlist entries in place. A later scan can set the flag back.
 In the event of a missing track, attempt described recovery:
+- Look for an unclaimed file stamped with the song's uuid. Match it.
 - Look for tracks with the same name and file size in the whole library. Match if only one exists
 - Look for tracks with the same file size. For each match, open and check duration. If only 1 match exists with both duration and size equality, match it.
 - Fail and update record to show it is not on disk anymore

@@ -4,12 +4,15 @@ Everything needed to write a client. Read [core.md](core.md) for the vocabulary.
 
 Clients send commands and get one response each. Core sends events to every attached client.
 
+The peer commands, their jobs and their events are in [peer-protocol.md](peer-protocol.md).
+
 ## Conventions
 
 - Times and durations are seconds, as floats.
 - Timestamps are UTC, ISO 8601, millisecond precision.
 - Volume runs 0.0 to 1.0.
 - Songs, playlists, and playlist entries carry integer ids.
+- Songs and playlists carry a `uuid` as well, which travels with them between cores.
 - Queue entries carry their own ids, which last only as long as the entry.
 - The queue's `source` is nullable. Nothing else in a state snapshot is, apart from `song_id` and `playlist_id` where noted.
 - Payloads are JSON.
@@ -17,12 +20,12 @@ Clients send commands and get one response each. Core sends events to every atta
 ## Envelopes
 
 ```json
-{"v": 2, "id": "c-17", "method": "seek_to", "params": {"seconds": 91.5}}
+{"v": 3, "id": "c-17", "method": "seek_to", "params": {"seconds": 91.5}}
 
-{"v": 2, "id": "c-17", "ok": true, "result": {}}
-{"v": 2, "id": "c-17", "ok": false, "error": {"code": "NOT_FOUND", "message": "no entry 5501", "detail": {"entry_id": 5501}}}
+{"v": 3, "id": "c-17", "ok": true, "result": {}}
+{"v": 3, "id": "c-17", "ok": false, "error": {"code": "NOT_FOUND", "message": "no entry 5501", "detail": {"entry_id": 5501}}}
 
-{"v": 2, "seq": 8841, "ts": "2026-08-05T11:20:03.512Z", "type": "QueueChanged", "payload": {}}
+{"v": 3, "seq": 8841, "ts": "2026-08-05T11:20:03.512Z", "type": "QueueChanged", "payload": {}}
 ```
 
 - `v` - protocol version.
@@ -144,21 +147,23 @@ Either command returns the resulting `playback`, so a client reads both values b
 
 ### Library
 
-| Command           | Params                                | Result           |
-|-------------------|---------------------------------------|------------------|
-| `list_songs`      | `query`, `offset`, `limit`            | `{songs, total}` |
-| `get_songs`       | `song_ids`                            | `{songs}`        |
-| `update_song`     | `song_id`, `fields`                   | `song`           |
-| `forget_song`     | `song_id`                             |                  |
-| `list_playlists`  |                                       | `{playlists}`    |
-| `get_playlist`    | `playlist_id`                         | `playlist`       |
-| `create_playlist` | `name`, `song_ids`                    | `playlist`       |
-| `update_playlist` | `playlist_id`, `fields`               | `playlist`       |
-| `delete_playlist` | `playlist_id`                         |                  |
-| `playlist_add`    | `playlist_id`, `song_ids`, `at_index` | `playlist`       |
-| `playlist_remove` | `entry_ids`                           | `playlist`       |
-| `playlist_move`   | `entry_id`, `to_index`                | `playlist`       |
+| Command             | Params                                | Result           |
+|---------------------|---------------------------------------|------------------|
+| `list_songs`        | `query`, `offset`, `limit`            | `{songs, total}` |
+| `get_songs`         | `song_ids`                            | `{songs}`        |
+| `get_songs_by_uuid` | `uuids`                               | `{songs}`        |
+| `update_song`       | `song_id`, `fields`                   | `song`           |
+| `forget_song`       | `song_id`                             |                  |
+| `list_playlists`    |                                       | `{playlists}`    |
+| `get_playlist`      | `playlist_id`                         | `playlist`       |
+| `create_playlist`   | `name`, `song_ids`                    | `playlist`       |
+| `update_playlist`   | `playlist_id`, `fields`               | `playlist`       |
+| `delete_playlist`   | `playlist_id`                         |                  |
+| `playlist_add`      | `playlist_id`, `song_ids`, `at_index` | `playlist`       |
+| `playlist_remove`   | `entry_ids`                           | `playlist`       |
+| `playlist_move`     | `entry_id`, `to_index`                | `playlist`       |
 
+- `get_songs_by_uuid` answers with the `song` shape for each uuid this core holds a row for. A uuid with no row is absent from the answer.
 - `update_song` takes `name`, `artist`, `metadata`. The file on disk keeps its name.
 - `update_playlist` takes `name`, `metadata`.
 - `playlist_remove` and `playlist_move` take entry ids, which arrive with the playlist. Duplicates are allowed.
@@ -168,7 +173,7 @@ Either command returns the resulting `playback`, so a client reads both values b
 ```json
 {
   "song": {
-    "id": 812, "name": "Slow Burn Interlude", "artist": "Kestrel Field",
+    "id": 812, "uuid": "b81f2c66-...", "name": "Slow Burn Interlude", "artist": "Kestrel Field",
     "duration": 252.0, "file_size": 6291456,
     "location": "2026/03/Slow Burn Interlude - Kestrel Field.opus",
     "found_on_disk": true, "metadata": {},
@@ -176,12 +181,14 @@ Either command returns the resulting `playback`, so a client reads both values b
     "last_played_at": "2026-08-05T11:18:31.000Z", "play_count": 12
   },
   "playlist": {
-    "id": 4, "name": "Late night", "metadata": {},
+    "id": 4, "uuid": "6f3d1b04-...", "name": "Late night", "metadata": {},
     "created_at": "2026-01-02T19:44:00.000Z", "modified_at": "2026-07-30T08:12:04.000Z",
     "entries": [{"entry_id": 5501, "song_id": 812}, {"entry_id": 5502, "song_id": 77}]
   }
 }
 ```
+
+`location` is null on a song no file has ever been placed for.
 
 `list_playlists` returns each playlist without `entries` and with a `song_count`.
 
@@ -197,7 +204,7 @@ Either command returns the resulting `playback`, so a client reads both values b
 | `ScanProgress`    | `scanned`, `total`, `phase`        | during the startup scan               |
 | `TrackFailed`     | `song_id`, `message`               | a song could not be played            |
 
-- `scope` - `song` or `playlist`. `ids` lists what changed.
+- `scope` - `song`, `playlist` or `statistics`, the last being a play count and a last-played time. `ids` lists what changed.
 - `phase` - `walking`, `reconciling`, `inserting`, `done`.
 - `QueueChanged` carries no contents, only the revision.
 - Events reach the client that caused them too.
@@ -212,3 +219,5 @@ Either command returns the resulting `playback`, so a client reads both values b
 | `TRACK_ABSENT`     | The song's file is not on disk                                        |
 | `PLAYBACK_FAILED`  | The file is there and would not play                                  |
 | `INTERNAL`         | Anything else                                                         |
+
+The peer errors are in [peer-protocol.md](peer-protocol.md).

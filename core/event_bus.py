@@ -5,6 +5,7 @@ from typing import Any
 from core.types.client import Client, EventSink
 from protocol.types.event_type import EventType
 from protocol.types.library_scope import LibraryScope
+from protocol.types.origin import Origin
 
 
 class EventBus:
@@ -16,8 +17,8 @@ class EventBus:
         self.queue_revision = 0
         self.library_revision = 0
 
-    def attach(self, name: str, sink: EventSink) -> Client:
-        client = Client(name, sink)
+    def attach(self, name: str, sink: EventSink, origin: Origin = Origin.LOCAL) -> Client:
+        client = Client(name, sink, origin)
         with self._lock:
             self._clients.append(client)
         return client

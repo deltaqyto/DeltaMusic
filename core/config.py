@@ -1,4 +1,5 @@
 import json
+import socket
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -17,6 +18,13 @@ class Config:
     audio_extensions: list[str] = field(default_factory=lambda: list(AUDIO_EXTENSIONS))
     frontends: list[str] = field(default_factory=lambda: ["qt"])
     initial_volume: float = 0.8
+    peer_enabled: bool = True
+    peer_port: int = 47822
+    core_name: str = field(default_factory=socket.gethostname)
+    visibility_seconds: int = 300
+    max_concurrent_transfers: int = 2
+    remote_control_enabled: bool = False
+    remote_control_port: int = 47821
 
     @property
     def library_path(self) -> Path:

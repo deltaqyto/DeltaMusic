@@ -3,6 +3,15 @@ from protocol.types.error_code import ErrorCode
 from protocol.types.event import Event
 from protocol.types.event_type import EventType
 from protocol.types.library_scope import LibraryScope
+from protocol.types.origin import Origin
+from protocol.types.pairing_candidate import PairingCandidate
+from protocol.types.pairing_state import PairingState
+from protocol.types.peer_job import PeerJob
+from protocol.types.peer_job_kind import PeerJobKind
+from protocol.types.peer_job_state import PeerJobState
+from protocol.types.peer_playlist import PeerPlaylist
+from protocol.types.peer_record import PeerRecord
+from protocol.types.peer_song import PeerSong
 from protocol.types.playback_state import PlaybackState
 from protocol.types.playback_status import PlaybackStatus
 from protocol.types.playlist import Playlist
@@ -24,6 +33,15 @@ __all__ = [
     "Event",
     "EventType",
     "LibraryScope",
+    "Origin",
+    "PairingCandidate",
+    "PairingState",
+    "PeerJob",
+    "PeerJobKind",
+    "PeerJobState",
+    "PeerPlaylist",
+    "PeerRecord",
+    "PeerSong",
     "PlaybackState",
     "PlaybackStatus",
     "Playlist",

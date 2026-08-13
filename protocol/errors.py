@@ -30,3 +30,27 @@ def track_absent(song_id: int) -> ProtocolError:
 
 def playback_failed(message: str, **detail: Any) -> ProtocolError:
     return ProtocolError(ErrorCode.PLAYBACK_FAILED, message, detail)
+
+
+def peer_unknown(peer_id: str) -> ProtocolError:
+    return ProtocolError(ErrorCode.PEER_UNKNOWN, f"no peer {peer_id}", {"peer_id": peer_id})
+
+
+def peer_unreachable(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.PEER_UNREACHABLE, message, detail)
+
+
+def pairing_closed(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.PAIRING_CLOSED, message, detail)
+
+
+def pairing_refused(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.PAIRING_REFUSED, message, detail)
+
+
+def untrusted_peer(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.UNTRUSTED_PEER, message, detail)
+
+
+def transfer_failed(message: str, **detail: Any) -> ProtocolError:
+    return ProtocolError(ErrorCode.TRANSFER_FAILED, message, detail)

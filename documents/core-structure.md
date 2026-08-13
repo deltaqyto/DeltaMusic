@@ -20,17 +20,19 @@ flowchart TB
     BUS["EventBus"] --> OUT(["events out"])
 ```
 
-- **CoreService** - one method per command in [client-protocol.md](client-protocol.md). The only surface a transport touches.
+- **CoreService** - one method per command in [client-protocol.md](client-protocol.md) and [peer-protocol.md](peer-protocol.md). The only surface a transport touches.
 - **Runtime** - applies commands and engine reports one at a time. Ticks the heartbeat, and offers each beat to `SessionMemory`.
 - **SessionMemory** - the session across runs. Restored on start, written debounced as the beat reports it changing.
 - **PlaybackController** - the queue, the cursor, repeat and shuffle. See [core-playback.md](core-playback.md). It reads the library to expand a playlist into song ids, to look songs up, to count a play, and to turn a song into the file path it hands the engine.
 - **Library** - songs, playlists, and the scanner. See [core-data.md](core-data.md).
 - **PlaybackEngine** - decode and output. It is given a path and never consults the library itself.
-- **EventBus** - holds `queue_revision` and `library_revision`, fans events to attached clients.
+- **EventBus** - holds `queue_revision` and `library_revision`, fans events to attached clients on whichever thread published them. A transport that needs its events on another thread marshals them.
 
 ## Transports
 
 A transport translates between the wire and `CoreService`. The bundled PyQt app calls it in-process; a websocket server is the same adapter over a socket.
+
+The peer components hang off `CoreService` and are laid out in [peer-protocol.md](peer-protocol.md), along with the `origin` every attachment carries.
 
 Command arguments and event payloads are JSON-serializable on every path, in-process included.
 
@@ -59,6 +61,9 @@ Both edits land, and both clients see both revisions. B named an entry, not a po
 
 The bus does not coalesce. Every event is fanned to every attached client as it is published, one `QueueChanged` per revision bump. 
 Latest-only behaviour lives in the heartbeat, which attaches the queue when the revision has moved since the last heartbeat that carried it, and on every tenth beat regardless.
+
+A command that crosses the network answers on the thread that called it, and what it writes is marshalled onto the runtime to apply in turn. 
+[peer-protocol.md](peer-protocol.md) names those commands and the threads the peer side runs on.
 
 ## Storage
 
