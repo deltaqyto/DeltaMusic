@@ -9,7 +9,6 @@ class SongEditor(AppDialog):
 
     def __init__(self, song: Song, parent=None):
         super().__init__("Edit song", parent)
-        self.setMinimumWidth(380)
 
         self._name = QLineEdit(song.name)
         self._artist = QLineEdit(song.artist)
@@ -26,6 +25,7 @@ class SongEditor(AppDialog):
         form.addRow("Title", self._name)
         form.addRow("Artist", self._artist)
         form.addRow(buttons)
+        self.fit(380)
 
     def fields(self) -> dict[str, str]:
         return {"name": self._name.text().strip(), "artist": self._artist.text().strip()}

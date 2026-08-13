@@ -21,6 +21,9 @@ _STROKE = {
     "queue_add": '<path d="M3 6h9"/><path d="M3 12h9"/><path d="M3 18h9"/><path d="m16 8 4 4-4 4"/>',
     "close": '<path d="m6 6 12 12"/><path d="m18 6-12 12"/>',
     "grip": '<path d="M7 10h10"/><path d="M7 14h10"/>',
+    "devices": '<rect x="2" y="4" width="13" height="9" rx="1"/><path d="M2 17h13"/><rect x="17" y="8" width="5" height="11" rx="1"/>',
+    "chevron_right": '<path d="m9 5 7 7-7 7"/>',
+    "chevron_down": '<path d="m5 9 7 7 7-7"/>',
 }
 
 _FILLED = {

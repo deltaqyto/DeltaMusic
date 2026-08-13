@@ -27,3 +27,9 @@ class AppDialog(FramelessDialog):
         frame.addWidget(self.body)
 
         self.titleBar.raise_()
+
+    def fit(self, width: int) -> None:
+        """A frameless dialog takes no size from what it holds, so it is given one. Call it once the body is filled."""
+        self.setFixedWidth(width)
+        self.adjustSize()
+        self.setFixedHeight(self.height())

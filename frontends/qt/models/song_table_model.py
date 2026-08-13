@@ -8,8 +8,8 @@ from frontends.qt.style import ACCENT, DIM, DIMMER, TEXT
 from protocol.types.song import Song
 
 HEADERS = ["#", "Title", "Artist", "Time", ""]
-QUEUE_COLUMN = 4
-"""Holds no data. The delegate paints a queue button here on the hovered row."""
+ACTION_COLUMN = 4
+"""Holds no data. The delegate paints the model's action glyph here on the hovered row."""
 
 
 class SongTableModel(QAbstractTableModel):
@@ -35,6 +35,9 @@ class SongTableModel(QAbstractTableModel):
 
     def song_ids(self) -> list[int]:
         return [song.id for song in self._songs]
+
+    def action_glyph(self) -> str | None:
+        return "queue_add"
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._songs)
@@ -62,7 +65,10 @@ class SongTableModel(QAbstractTableModel):
             if column == 0:
                 return str(index.row() + 1)
             if column == 1:
-                return f"{song.name}   missing" if not song.found_on_disk else song.name
+                if song.found_on_disk:
+                    return song.name
+                # A location with no file went missing, no location at all is a file that never landed.
+                return f"{song.name}   missing" if song.location else f"{song.name}   no file"
             if column == 2:
                 return song.artist
             if column == 3:

@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QMenu,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -18,8 +17,14 @@ from qframelesswindow import FramelessMainWindow  # Thanks to ZhiYiYo for https:
 from frontends.core_client import ClientError, CoreClient
 from frontends.qt.bridge import EventBridge
 from frontends.qt.icons import app_icon
-from frontends.qt.models.song_table_model import QUEUE_COLUMN, SongTableModel
+from frontends.qt.models.peer_song_table_model import PeerSongTableModel
+from frontends.qt.models.song_table_model import ACTION_COLUMN, SongTableModel
+from frontends.qt.peer_book import PeerBook
 from frontends.qt.style import COLUMN_HEAD_HEIGHT, STYLESHEET, TITLE_BAR_HEIGHT
+from frontends.qt.types.view_target import ViewTarget
+from frontends.qt.widgets.confirmation import Confirmation
+from frontends.qt.widgets.devices_dialog import DevicesDialog
+from frontends.qt.widgets.job_bar import JobBar
 from frontends.qt.widgets.name_editor import NameEditor
 from frontends.qt.widgets.player_bar import PlayerBar
 from frontends.qt.widgets.queue_view import QueueView
@@ -51,10 +56,12 @@ class MainWindow(FramelessMainWindow):
         self._entry_ids: list[int] = []
         self._playlists: list[PlaylistSummary] = []
         self._playback: PlaybackState | None = None
-        self._viewing_playlist: int | None = ALL_TRACKS_ID
+        self._viewing = ViewTarget.local(ALL_TRACKS_ID)
         self._position = 0.0
         self._position_at = time.monotonic()
         self._rate = 0.0
+        self._book = PeerBook(client)
+        self._devices: DevicesDialog | None = None
 
         self.setWindowTitle("DeltaMusic")
         self.setWindowIcon(app_icon())
@@ -62,9 +69,11 @@ class MainWindow(FramelessMainWindow):
         self.setStyleSheet(STYLESHEET)
         self.setTitleBar(ApplicationTitleBar(self))
         self._build()
+        self._wire_book()
         self.titleBar.raise_()
 
         self._bridge = EventBridge(client)
+        self._bridge.arrived.connect(self._book.handle)
         self._bridge.arrived.connect(self._on_event)
         self._bridge.start()
 
@@ -87,6 +96,9 @@ class MainWindow(FramelessMainWindow):
         column.addWidget(self._build_rule())
         column.addWidget(self._build_body(), 1)
 
+        self._job_bar = JobBar(self._book)
+        column.addWidget(self._job_bar)
+
         self._player = PlayerBar()
         self._player.play_pressed.connect(lambda: self._command("play"))
         self._player.pause_pressed.connect(lambda: self._command("pause"))
@@ -104,6 +116,7 @@ class MainWindow(FramelessMainWindow):
         self._search = self.titleBar.search
         self._status = self.titleBar.status
         self._search.textChanged.connect(self._on_search_typed)
+        self.titleBar.devices.clicked.connect(self._open_devices)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -132,11 +145,18 @@ class MainWindow(FramelessMainWindow):
         self._sidebar.rename_requested.connect(self._on_rename_playlist)
         self._sidebar.delete_requested.connect(self._on_delete_playlist)
         self._sidebar.play_requested.connect(self._on_playlist_play)
+        self._sidebar.peer_chosen.connect(self._book.activate)
+        self._sidebar.peer_refresh_requested.connect(lambda _peer_id: self._book.refresh())
+        self._sidebar.peer_fetch_requested.connect(self._book.fetch_songs)
+        self._sidebar.peer_forget_requested.connect(self._on_forget_peer)
+        self._sidebar.playlist_fetch_requested.connect(self._on_fetch_playlist)
+        self._sidebar.playlists_fetch_requested.connect(self._on_fetch_playlists)
 
         self._model = SongTableModel()
+        self._peer_model = PeerSongTableModel()
         self._table = SongTable()
         self._table.setModel(self._model)
-        self._table.queue_requested.connect(self._on_queue_song)
+        self._table.action_requested.connect(self._on_queue_song)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -144,19 +164,7 @@ class MainWindow(FramelessMainWindow):
         self._table.doubleClicked.connect(self._on_row_activated)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_menu)
-        header = self._table.horizontalHeader()
-        header.setFixedHeight(COLUMN_HEAD_HEIGHT)
-        header.setHighlightSections(False)
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(QUEUE_COLUMN, QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(0, 44)
-        self._table.setColumnWidth(2, 190)
-        self._table.setColumnWidth(3, 62)
-        self._table.setColumnWidth(QUEUE_COLUMN, BUTTON_COLUMN_WIDTH)
+        self._dress_header()
 
         self._queue = QueueView(self._resolve)
         self._queue.remove_requested.connect(self._on_queue_remove)
@@ -169,6 +177,22 @@ class MainWindow(FramelessMainWindow):
         row.addWidget(self._queue)
         return body
 
+    def _dress_header(self) -> None:
+        """The models share a column layout, and a fresh model resets the sections."""
+        header = self._table.horizontalHeader()
+        header.setFixedHeight(COLUMN_HEAD_HEIGHT)
+        header.setHighlightSections(False)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(ACTION_COLUMN, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(0, 44)
+        self._table.setColumnWidth(2, 190)
+        self._table.setColumnWidth(3, 62)
+        self._table.setColumnWidth(ACTION_COLUMN, BUTTON_COLUMN_WIDTH)
+
     @staticmethod
     def _build_divider() -> QWidget:
         """The border-left would not paint, so make a plain QWidget subclass to ignore the box model."""
@@ -176,6 +200,14 @@ class MainWindow(FramelessMainWindow):
         divider.setObjectName("headerRule")
         divider.setFixedWidth(1)
         return divider
+
+    def _wire_book(self) -> None:
+        self._book.peers_changed.connect(self._show_peers)
+        self._book.active_changed.connect(self._on_active_changed)
+        self._book.snapshot_changed.connect(self._on_snapshot)
+        self._book.snapshot_failed.connect(self._on_snapshot_failed)
+        self._book.failed.connect(self._set_status)
+        self._book.code_ready.connect(self._open_devices)
 
     # Status
 
@@ -192,6 +224,7 @@ class MainWindow(FramelessMainWindow):
 
     def _load_state(self) -> None:
         self._reload_playlists()
+        self._book.start()
         try:
             state = self._client.call("get_state")
         except ClientError as failure:
@@ -207,7 +240,22 @@ class MainWindow(FramelessMainWindow):
             self._set_status(str(failure))
             return
         self._playlists = [PlaylistSummary.from_dict(raw) for raw in result["playlists"]]
-        self._sidebar.show_playlists(self._playlists)
+        if self._book.active_peer() is None:
+            self._sidebar.show_playlists(self._playlists)
+
+    def _show_target(self) -> None:
+        if self._viewing.is_local:
+            self._use_model(self._model)
+            self._show_playlist(self._viewing.playlist_id)
+            return
+        self._use_model(self._peer_model)
+        self._show_peer_songs()
+
+    def _use_model(self, model) -> None:
+        if self._table.model() is model:
+            return
+        self._table.setModel(model)
+        self._dress_header()
 
     def _show_playlist(self, playlist_id: int) -> None:
         try:
@@ -223,12 +271,25 @@ class MainWindow(FramelessMainWindow):
         self._model.set_songs([resolved[song_id] for song_id in song_ids if song_id in resolved])
         self._highlight_current()
 
+    def _show_peer_songs(self) -> None:
+        snapshot = self._book.snapshot()
+        if snapshot is None:
+            self._peer_model.set_songs([])
+            return
+        self._entry_ids = []
+        if self._viewing.playlist_uuid is None:
+            self._peer_model.set_songs(snapshot.songs)
+        else:
+            self._peer_model.set_songs(snapshot.tracks_of(self._viewing.playlist_uuid))
+
     def _run_search(self) -> None:
         query = self._search.text().strip()
         if not query:
             self._clear_status()
-            if self._viewing_playlist is not None:
-                self._show_playlist(self._viewing_playlist)
+            self._show_target()
+            return
+        if not self._viewing.is_local:
+            self._search_peer(query)
             return
         try:
             result = self._client.call("list_songs", query=query, offset=0, limit=500)
@@ -239,9 +300,25 @@ class MainWindow(FramelessMainWindow):
         for song in songs:
             self._songs[song.id] = song
         self._entry_ids = []
+        self._use_model(self._model)
         self._model.set_songs(songs)
         self._highlight_current()
         self._set_status(f"{result['total']} matches")
+
+    def _search_peer(self, query: str) -> None:
+        """No command searches a peer, so the snapshot is filtered here."""
+        snapshot = self._book.snapshot()
+        if snapshot is None:
+            return
+        wanted = query.casefold()
+        rows = [
+            listed
+            for listed in snapshot.songs
+            if wanted in listed.song.name.casefold() or wanted in listed.song.artist.casefold()
+        ]
+        self._use_model(self._peer_model)
+        self._peer_model.set_songs(rows)
+        self._set_status(f"{len(rows)} matches")
 
     def _resolve(self, song_ids: list[int]) -> dict[int, Song]:
         """Ids to songs, fetching only what is not cached."""
@@ -288,10 +365,12 @@ class MainWindow(FramelessMainWindow):
             self._songs.pop(song_id, None)
         if event.payload.get("scope") == LibraryScope.PLAYLIST.value:
             self._reload_playlists()
+        elif not self._viewing.is_local:
+            return
         elif self._search.text().strip():
             self._run_search()
-        elif self._viewing_playlist is not None:
-            self._show_playlist(self._viewing_playlist)
+        else:
+            self._show_target()
 
     def _apply_playback(self, playback: PlaybackState) -> None:
         self._playback = playback
@@ -328,17 +407,117 @@ class MainWindow(FramelessMainWindow):
         elapsed = time.monotonic() - self._position_at
         self._player.show_position(self._position + elapsed * self._rate)
 
+    # Peers
+
+    def _show_peers(self) -> None:
+        self._sidebar.show_peers(self._book.peers(), self._book.active_peer())
+
+    def _on_active_changed(self) -> None:
+        peer_id = self._book.active_peer()
+        self._show_peers()
+        self._search.clear()
+        if peer_id is None:
+            self._viewing = ViewTarget.local(ALL_TRACKS_ID)
+            self._sidebar.show_playlists(self._playlists)
+            self._sidebar.select(ALL_TRACKS_ID)
+            self._show_target()
+            return
+        name = self._book.peer_name(peer_id)
+        self._viewing = ViewTarget.peer_library(peer_id)
+        self._sidebar.show_listing(name)
+        self._use_model(self._peer_model)
+        self._peer_model.set_songs([])
+        self._set_status(f"reading {name}")
+
+    def _on_snapshot(self) -> None:
+        snapshot = self._book.snapshot()
+        peer_id = self._book.active_peer()
+        if snapshot is None or peer_id is None:
+            return
+        self._sidebar.show_peer_playlists(self._book.peer_name(peer_id), snapshot.playlists)
+        # A refresh keeps the playlist that was open, if the peer still carries it.
+        if self._viewing.playlist_uuid is not None and snapshot.playlist(self._viewing.playlist_uuid) is None:
+            self._viewing = ViewTarget.peer_library(peer_id)
+        self._show_target()
+
+    def _on_snapshot_failed(self, message: str) -> None:
+        self._set_status(message)
+        self._sidebar.show_peer_playlists(self._book.peer_name(self._book.active_peer() or ""), [])
+        self._use_model(self._peer_model)
+        self._peer_model.set_songs([])
+
+    def _open_devices(self) -> None:
+        if self._devices is None:
+            self._devices = DevicesDialog(self._book, self)
+        self._devices.show()
+        self._devices.raise_()
+        self._devices.activateWindow()
+
+    def _on_forget_peer(self, peer_id: str) -> None:
+        name = self._book.peer_name(peer_id)
+        if Confirmation.ask(self, "Forget device", f"Forget '{name}'? Its tracks here are untouched."):
+            self._book.forget(peer_id)
+
+    def _on_fetch_playlist(self, uuid: str) -> None:
+        peer_id = self._book.active_peer()
+        if peer_id is not None and self._confirm_merge(uuid):
+            self._book.fetch_playlists(peer_id, [uuid])
+
+    def _on_fetch_playlists(self) -> None:
+        peer_id = self._book.active_peer()
+        if peer_id is not None:
+            self._book.fetch_playlists(peer_id)
+
+    def _confirm_merge(self, uuid: str) -> bool:
+        """Merging a playlist this core already holds replaces its entry list."""
+        known = next((playlist for playlist in self._playlists if playlist.uuid == uuid), None)
+        if known is None:
+            return True
+        return Confirmation.ask(
+            self, "Download playlist", f"'{known.name}' is already downloaded. Update with peer copy?."
+        )
+
+    def _play_held(self, uuids: list[str]) -> None:
+        """A fetch writes rows before files move, so `found_on_disk` is the test rather than the row being there."""
+        held = self._book.resolve(uuids)
+        song_ids = [held[uuid].id for uuid in uuids if uuid in held and held[uuid].found_on_disk]
+        if song_ids:
+            self._command("play_songs", song_ids=song_ids)
+
     # Reacting
 
     def _on_search_typed(self, _text: str) -> None:
         self._search_timer.start(SEARCH_DEBOUNCE_MS)
 
-    def _on_playlist_chosen(self, playlist_id: int) -> None:
-        self._viewing_playlist = playlist_id
+    def _on_playlist_chosen(self, chosen) -> None:
+        peer_id = self._book.active_peer()
+        if peer_id is None:
+            if not isinstance(chosen, int):
+                return
+            self._viewing = ViewTarget.local(chosen)
+        elif chosen is None:
+            self._viewing = ViewTarget.peer_library(peer_id)
+        else:
+            self._viewing = ViewTarget.peer_playlist(peer_id, chosen)
         self._search.clear()
-        self._show_playlist(playlist_id)
+        self._show_target()
 
-    def _on_playlist_play(self, playlist_id: int) -> None:
+    def _on_playlist_play(self, chosen) -> None:
+        peer_id = self._book.active_peer()
+        if peer_id is None:
+            if isinstance(chosen, int):
+                self._play_local_playlist(chosen)
+            return
+        if chosen is None:
+            return
+        if not self._confirm_merge(chosen):
+            return
+        self._book.fetch_playlists(peer_id, [chosen])
+        snapshot = self._book.snapshot()
+        if snapshot is not None:
+            self._play_held([listed.song.uuid for listed in snapshot.tracks_of(chosen)])
+
+    def _play_local_playlist(self, playlist_id: int) -> None:
         """Shuffle should not always open on track one, so it starts somewhere in the playlist instead."""
         count = next((playlist.song_count for playlist in self._playlists if playlist.id == playlist_id), 0)
         if not count:
@@ -349,13 +528,29 @@ class MainWindow(FramelessMainWindow):
 
     def _on_row_activated(self, index) -> None:
         row = index.row()
+        if not self._viewing.is_local:
+            self._activate_peer_row(row)
+            return
         song = self._model.song_at(row)
         if song is None:
             return
-        if self._search.text().strip() or self._viewing_playlist is None:
+        if self._search.text().strip():
             self._command("play_songs", song_ids=self._model.song_ids()[row:])
         else:
-            self._command("play_playlist", playlist_id=self._viewing_playlist, start_index=row)
+            self._command("play_playlist", playlist_id=self._viewing.playlist_id, start_index=row)
+
+    def _activate_peer_row(self, row: int) -> None:
+        listed = self._peer_model.song_at(row)
+        peer_id = self._book.active_peer()
+        if listed is None or peer_id is None or not listed.song.available:
+            return
+        if not listed.held:
+            self._book.fetch_songs(peer_id, [listed.song.uuid])
+            return
+        self._play_held([entry.song.uuid for entry in self._peer_songs_from(row)])
+
+    def _peer_songs_from(self, row: int) -> list:
+        return [self._peer_model.song_at(index) for index in range(row, self._peer_model.rowCount())]
 
     # Playlists
 
@@ -376,12 +571,11 @@ class MainWindow(FramelessMainWindow):
 
     def _on_delete_playlist(self, playlist_id: int) -> None:
         name = next((p.name for p in self._playlists if p.id == playlist_id), "")
-        confirmed = QMessageBox.question(self, "Delete playlist", f"Delete '{name}'? The songs are untouched.")
-        if confirmed is not QMessageBox.StandardButton.Yes:
+        if not Confirmation.ask(self, "Delete playlist", f"Delete '{name}'? The songs are untouched."):
             return
         self._command("delete_playlist", playlist_id=playlist_id)
-        if self._viewing_playlist == playlist_id:
-            self._viewing_playlist = ALL_TRACKS_ID
+        if self._viewing.playlist_id == playlist_id:
+            self._viewing = ViewTarget.local(ALL_TRACKS_ID)
             self._sidebar.select(ALL_TRACKS_ID)
         self._reload_playlists()
 
@@ -389,6 +583,9 @@ class MainWindow(FramelessMainWindow):
 
     def _on_table_menu(self, point) -> None:
         rows = sorted({index.row() for index in self._table.selectionModel().selectedRows()})
+        if not self._viewing.is_local:
+            self._peer_menu(point, rows)
+            return
         songs = [song for song in (self._model.song_at(row) for row in rows) if song is not None]
         if not songs:
             return
@@ -404,12 +601,24 @@ class MainWindow(FramelessMainWindow):
             for playlist in targets:
                 adding.addAction(playlist.name, lambda _=False, p=playlist.id: self._add_to_playlist(p, songs))
 
-        if self._entry_ids and self._viewing_playlist not in (None, ALL_TRACKS_ID):
+        if self._entry_ids and self._viewing.playlist_id not in (None, ALL_TRACKS_ID):
             entry_ids = [self._entry_ids[row] for row in rows if row < len(self._entry_ids)]
             menu.addAction("Remove from this playlist", lambda: self._remove_entries(entry_ids))
 
         menu.addSeparator()
         menu.addAction("Forget", lambda: self._forget_songs(songs))
+        menu.exec(self._table.viewport().mapToGlobal(point))
+
+    def _peer_menu(self, point, rows: list[int]) -> None:
+        peer_id = self._book.active_peer()
+        if peer_id is None:
+            return
+        listed = [entry for entry in (self._peer_model.song_at(row) for row in rows) if entry is not None]
+        menu = QMenu(self)
+        if listed:
+            uuids = [entry.song.uuid for entry in listed]
+            menu.addAction(f"Download {len(uuids)} track(s)", lambda: self._book.fetch_songs(peer_id, uuids))
+        menu.addAction("Download everything", lambda: self._book.fetch_songs(peer_id))
         menu.exec(self._table.viewport().mapToGlobal(point))
 
     def _edit_song(self, song: Song) -> None:
@@ -429,10 +638,8 @@ class MainWindow(FramelessMainWindow):
             self._command("playlist_remove", entry_ids=entry_ids)
 
     def _forget_songs(self, songs: list[Song]) -> None:
-        confirmed = QMessageBox.question(
-            self, "Forget songs", f"Drop {len(songs)} song(s) from the library? The files are untouched."
-        )
-        if confirmed is not QMessageBox.StandardButton.Yes:
+        question = f"Drop {len(songs)} song(s) from the library? The files are untouched."
+        if not Confirmation.ask(self, "Forget songs", question):
             return
         for song in songs:
             self._command("forget_song", song_id=song.id)

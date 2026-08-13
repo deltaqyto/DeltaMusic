@@ -8,7 +8,6 @@ class NameEditor(AppDialog):
 
     def __init__(self, title: str, label: str, text: str = "", parent=None):
         super().__init__(title, parent)
-        self.setMinimumWidth(340)
 
         self._field = QLineEdit(text)
         self._field.selectAll()
@@ -24,6 +23,7 @@ class NameEditor(AppDialog):
         form.setSpacing(10)
         form.addRow(label, self._field)
         form.addRow(buttons)
+        self.fit(340)
 
     def name(self) -> str:
         return self._field.text().strip()

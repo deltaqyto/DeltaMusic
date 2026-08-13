@@ -9,8 +9,10 @@ SUBTLE = "#b4b4bc"
 MUTED = "#9a9aa2"
 DIM = "#85858c"
 DIMMER = "#55555c"
+FAINT = "#3b3b41"
 ACCENT = "#ff7a18"
 ACCENT_DIM = "#b2560f"
+WARN = "#ff6b5e"
 
 TITLE_BAR_HEIGHT = 46
 DIALOG_TITLE_BAR_HEIGHT = 34
@@ -82,6 +84,12 @@ QHeaderView::section {{
 /* The queue's rows are delegate-painted, so no ::item rule may claim their geometry or their background. */
 #queue {{ border: none; outline: none; }}
 
+#jobBar {{ background: {PANEL}; border-top: 1px solid {LINE}; }}
+#jobRow {{ background: transparent; border-bottom: 1px solid {LINE}; }}
+#jobTitle {{ background: transparent; color: {SUBTLE}; font-size: 12px; }}
+#jobCount {{ background: transparent; color: {MUTED}; font-size: 11px; }}
+#jobDetail {{ background: transparent; color: {DIM}; font-size: 11px; padding-left: 32px; }}
+
 #player {{ background: {PANEL_2}; border-top: 1px solid {LINE}; }}
 #npBlock, #transportBlock, #volumeBlock {{ background: transparent; }}
 #art {{
@@ -136,6 +144,9 @@ QMenu::separator {{ height: 1px; background: {LINE}; margin: 4px 8px; }}
 QDialog {{ background: {PANEL_2}; }}
 #dialogBody {{ background: {PANEL_2}; }}
 #dialogTitle {{ background: transparent; color: {SUBTLE}; font-size: 12px; }}
+#dialogNote {{ background: transparent; color: {DIM}; font-size: 11px; }}
+#dialogError {{ background: transparent; color: {WARN}; font-size: 11px; }}
+#code {{ background: transparent; color: {ACCENT}; font-size: 30px; font-weight: 600; letter-spacing: 8px; }}
 QLineEdit {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: 3px; padding: 5px 8px; color: {TEXT}; }}
 QLineEdit:focus {{ border-color: {ACCENT_DIM}; }}
 QPushButton {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: 3px; padding: 5px 14px; color: {TEXT}; }}

@@ -1,9 +1,9 @@
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 from qframelesswindow import TitleBar
 
-from frontends.qt.icons import app_glyph
+from frontends.qt.icons import app_glyph, icon
 from frontends.qt.style import ACCENT, DIALOG_TITLE_BAR_HEIGHT, LINE, PANEL, PANEL_2, TEXT, TITLE_BAR_HEIGHT
 
 CAPTION_BUTTON_SIZE = QSize(46, 32)
@@ -11,6 +11,7 @@ DIALOG_BUTTON_SIZE = QSize(38, 26)
 BRAND_MARK_SIZE = 22
 BRAND_CLEARANCE = 64
 DIALOG_MARK_SIZE = 14
+DEVICES_ICON_SIZE = 17
 CLOSE_HOVER = "#c42b1c"
 CLOSE_PRESS = "#a52216"
 
@@ -89,6 +90,13 @@ class ApplicationTitleBar(_ThemedTitleBar):
         self.search.setPlaceholderText("Search songs, artists, playlists")
         self.search.setFixedWidth(420)
 
+        self.devices = QPushButton()
+        self.devices.setObjectName("iconButton")
+        self.devices.setIcon(icon("devices", TEXT, DEVICES_ICON_SIZE))
+        self.devices.setToolTip("Devices")
+        self.devices.setFixedSize(30, 26)
+        self.devices.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.status = QLabel("")
         self.status.setObjectName("status")
         self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -101,6 +109,7 @@ class ApplicationTitleBar(_ThemedTitleBar):
         row.addWidget(brand)
         row.addSpacing(BRAND_CLEARANCE)
         row.addWidget(self.search)
+        row.addWidget(self.devices)
         row.addStretch(1)
         row.addWidget(self.status)
 
