@@ -93,6 +93,7 @@ A handshake against a record takes the display name the certificate carries and 
 ## Discovery
 
 mDNS and DNS-SD, browsed and advertised continuously while the listener is up. One service, with `pairing` flipping. 
+A flip withdraws the instance and announces it again, since a responder that reports an instance appearing and going away is told nothing about a record that changed under a live registration. 
 The service instance is named by the core's uuid, so a rename moves the display name in the TXT record and leaves the instance where it was. The peer service's TXT record carries what a candidate list needs:
 
 | Key       | Meaning                    |

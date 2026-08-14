@@ -27,6 +27,7 @@ class Discovery(ServiceListener):
         self._on_change = on_change or (lambda: None)
 
         self._lock = threading.Lock()
+        self._advertising = threading.Lock()
         self._found: dict[str, PairingCandidate] = {}
         self._names: dict[str, str] = {}
         self._pairing = False
@@ -51,18 +52,20 @@ class Discovery(ServiceListener):
         self._browser = ServiceBrowser(self._zeroconf, SERVICE_TYPE, self)
 
     def stop(self) -> None:
-        zeroconf, browser, info = self._zeroconf, self._browser, self._info
-        self._zeroconf, self._browser, self._info = None, None, None
-        if zeroconf is None:
-            return
-        try:
-            if browser is not None:
-                browser.cancel()
-            if info is not None:
-                zeroconf.unregister_service(info)
-        except Exception:
-            log.exception("could not withdraw the peer service")
-        zeroconf.close()
+        # Waits out a flip that is mid-flight, so the goodbye is the last thing this core puts on the wire.
+        with self._advertising:
+            zeroconf, browser, info = self._zeroconf, self._browser, self._info
+            self._zeroconf, self._browser, self._info = None, None, None
+            if zeroconf is None:
+                return
+            try:
+                if browser is not None:
+                    browser.cancel()
+                if info is not None:
+                    zeroconf.unregister_service(info)
+            except Exception:
+                log.exception("could not withdraw the peer service")
+            zeroconf.close()
 
     def watch(self, on_change: Callable[[], None]) -> None:
         """Whoever draws the candidate list is called whenever what was found changes."""
@@ -119,16 +122,25 @@ class Discovery(ServiceListener):
         self._on_change()
 
     def _readvertise(self) -> None:
-        if self._zeroconf is None or self._info is None:
-            return
-        info = self._service_info(self._info.name)
-        if info is None:
-            return
-        try:
-            self._zeroconf.update_service(info)
-            self._info = info
-        except Exception:
-            log.exception("could not update the peer service")
+        """Off the caller's thread, since probing and announcing take seconds and the runtime thread is behind a flip."""
+        threading.Thread(target=self._reannounce, name="peer-advertise", daemon=True).start()
+
+    def _reannounce(self) -> None:
+        with self._advertising:
+            zeroconf, held = self._zeroconf, self._info
+            if zeroconf is None or held is None:
+                return
+            # The properties are read here, so a flip queued behind another one announces the state the core is in now.
+            info = self._service_info(held.name)
+            if info is None:
+                return
+            try:
+                # A TXT record updated in place reaches a responder that only reports an instance appearing and going away, and it never re-resolves. So the instance is withdrawn and announced again.
+                zeroconf.unregister_service(held)
+                zeroconf.register_service(info, allow_name_change=True)
+                self._info = info
+            except Exception:
+                log.exception("could not announce the peer service again")
 
     def _service_info(self, name: str | None = None) -> ServiceInfo | None:
         addresses = _local_addresses()
