@@ -49,6 +49,7 @@ Record the device name and host API.
 
 `config/acquisition_config.json` is written with defaults on first run. Edit it and re-run. 
 Backend settings go in a section named after the backend. Everything else is top level.
+The maximum recording time is set to 15 minutes in this config.
 
 ```json
 {
@@ -120,6 +121,49 @@ Sizes are per stereo minute at 48 kHz.
 
 Opus at a samplerate it does not support is refused at startup, before anything is recorded. 
 Either set the cable to 48 kHz, pin `samplerate` in the `windows` section, or use `ogg`.
+
+## Building an executable
+
+`build.bat` freezes the checkout with PyInstaller. It needs the venv that `setup.bat` creates, and installs
+`requirements-build.txt` into it.
+
+```bash
+build.bat
+```
+
+| Argument  | Effect                                                                |
+|-----------|-----------------------------------------------------------------------|
+| none      | `dist\DeltaMusic\`, one folder holding both executables.              |
+| `onefile` | `dist\DeltaMusic.exe` and `dist\DeltaMusicAcquire.exe`, self-contained. Each unpacks to a temporary folder on launch, so startup is slower. |
+| `clean`   | Deletes `build\` and `dist\` first.                                   |
+
+The build produces two executables:
+
+- `DeltaMusic.exe` is the player. It runs windowed, with no console.
+- `DeltaMusicAcquire.exe` is `entry.acquire`. It runs in a console and takes the same arguments, so
+  `DeltaMusicAcquire.exe --list-devices` lists input devices.
+
+A frozen build keeps its writable files beside the executable rather than in the checkout:
+
+- `config\` holds `config.json`, `acquisition_config.json`, the peer keypair and the session, all written on first run.
+- `recordings\` holds the library and `deltamusic.sqlite3`, under whatever `library_folder` and `save_directory` name.
+- `deltamusic.log` holds the current run's log, since the windowed build has no console to print to. Each launch truncates it.
+
+Copying `config\` from the checkout into the distribution folder carries a configured setup over. The peer identity in
+`core.crt` and `core.key` names one core, so two installations sharing a copy of it present themselves as the same peer.
+
+`build-tools\DeltaMusic.spec` drives the build. Four things in it track the code:
+
+- Alembic reads `core\alembic.ini` and `core\library\migrations\` as files at startup, so both ship as data.
+- `acquisition.backends.windows` is reached through `import_module`, and `winrt`, `zeroconf`, `ifaddr` and `mutagen`
+  resolve modules at runtime, so the spec names them as hidden imports. A new backend needs naming there too.
+- PortAudio and libsndfile come from the `sounddevice` and `soundfile` hooks in `pyinstaller-hooks-contrib`.
+- `winrt.windows.storage.streams` is excluded. Media.Control names it for session thumbnails, which nothing here reads,
+  and the `winrt-Windows.Media.Control[all]` extra that would supply it reaches 79 projection packages, adding 29 MB to
+  the build. Reading a thumbnail means installing that projection and dropping both storage entries from `EXCLUDES`.
+
+The executable icon is rendered from `frontends\qt\assets\icon.svg` into `build-tools\icon.ico` on each build. A build
+with that file missing succeeds and produces executables carrying the default Python icon.
 
 ## Troubleshooting
 
