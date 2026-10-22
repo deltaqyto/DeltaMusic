@@ -1,11 +1,15 @@
 """Where the program keeps its files, and the move of an older layout's config into `config/`."""
 
 import logging
+import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FROZEN = getattr(sys, "frozen", False)
+
+# A frozen build's code is read-only and may sit in a temporary folder
+PROJECT_ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 
 

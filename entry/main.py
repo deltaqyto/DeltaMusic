@@ -8,12 +8,27 @@ from core.config import CONFIG_FILE, load_or_create
 from core.service import CoreService
 from frontends.core_client import CoreClient
 from frontends.frontend import Frontend
-from entry.paths import adopt
+from entry.paths import FROZEN, PROJECT_ROOT, adopt
 
 log = logging.getLogger(__name__)
 
 # Qt must own the main thread, so it runs in the foreground and anything else is threaded behind it.
 FOREGROUND = "qt"
+
+LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+LOG_FILE = PROJECT_ROOT / "deltamusic.log"
+
+
+def _configure_logging() -> None:
+    handlers: list[logging.Handler] = []
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    if FROZEN:
+        try:
+            handlers.append(logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"))
+        except OSError:
+            pass  # An unwritable install folder costs the log, not the launch.
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, handlers=handlers)
 
 
 def _build_frontend(name: str, client: CoreClient) -> Frontend:
@@ -25,7 +40,7 @@ def _build_frontend(name: str, client: CoreClient) -> Frontend:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    _configure_logging()
     adopt(CONFIG_FILE)
     config = load_or_create()
 

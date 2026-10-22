@@ -33,6 +33,11 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# --- Build output ---------------------------------------------------------
+# Rendered from frontends/qt/assets/icon.svg by build.bat.
+build-tools/icon.ico
+deltamusic.log
+
 # --- Project output -------------------------------------------------------
 # Captured audio. Keep the directory, never the tracks.
 recordings/
