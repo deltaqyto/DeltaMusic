@@ -152,6 +152,17 @@ QLineEdit:focus {{ border-color: {ACCENT_DIM}; }}
 QPushButton {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: 3px; padding: 5px 14px; color: {TEXT}; }}
 QPushButton:hover {{ background: {LINE}; }}
 
+#settingLabel, #settingCell {{ background: transparent; }}
+#settingLabel {{ color: {SUBTLE}; }}
+QCheckBox {{ background: transparent; spacing: 8px; }}
+QCheckBox::indicator {{ width: 14px; height: 14px; border: 1px solid {FAINT}; border-radius: 3px; background: {PANEL}; }}
+QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QSpinBox, QDoubleSpinBox, QComboBox {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: 3px; padding: 5px 8px; color: {TEXT}; }}
+QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color: {ACCENT_DIM}; }}
+QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {{ background: transparent; border: none; padding: 0; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{ background: {PANEL_2}; border: 1px solid {LINE}; selection-background-color: {LINE}; selection-color: {TEXT}; outline: none; }}
+
 QScrollBar:vertical {{ background: transparent; width: 9px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: #26262a; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}

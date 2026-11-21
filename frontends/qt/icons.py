@@ -22,7 +22,8 @@ _STROKE = {
     "close": '<path d="m6 6 12 12"/><path d="m18 6-12 12"/>',
     "grip": '<path d="M7 10h10"/><path d="M7 14h10"/>',
     "devices": '<rect x="2" y="4" width="13" height="9" rx="1"/><path d="M2 17h13"/><rect x="17" y="8" width="5" height="11" rx="1"/>',
-    "chevron_right": '<path d="m9 5 7 7-7 7"/>',
+    "settings": '<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+    "chevron_right":'<path d="m9 5 7 7-7 7"/>',
     "chevron_down": '<path d="m5 9 7 7 7-7"/>',
 }
 

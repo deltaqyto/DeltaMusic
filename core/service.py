@@ -1,8 +1,10 @@
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from core.config import LIVE_SETTINGS, Config, check_setting, save
 from core.event_bus import EventBus
 from core.library.library import Library
 from core.peer.types.peer_side import PeerSide
@@ -19,6 +21,7 @@ from protocol.types.peer_song import PeerSong
 from protocol.types.request import Request
 from protocol.types.response import Response
 from protocol.types.session_state import SessionState
+from protocol.types.shuffle_method import ShuffleMethod
 from protocol.version import PEER_PROTOCOL_VERSION
 
 if TYPE_CHECKING:
@@ -28,7 +31,7 @@ log = logging.getLogger(__name__)
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
 
-# Pairing emits a code for a frontend to display.
+# Pairing emits a code for a frontend to display, and settings reach ports, paths and the private library flag.
 LOCAL_ONLY_METHODS = frozenset(
     {
         "pairing_status",
@@ -39,6 +42,8 @@ LOCAL_ONLY_METHODS = frozenset(
         "pairing_submit_code",
         "pairing_cancel",
         "peer_forget",
+        "get_settings",
+        "update_settings",
     }
 )
 
@@ -57,6 +62,7 @@ class CoreService:
         runtime: Runtime,
         bus: EventBus,
         memory: SessionMemory,
+        config: Config,
         peer: PeerSide | None = None,
         features: Sequence[str] = (),
     ):
@@ -65,6 +71,7 @@ class CoreService:
         self._runtime = runtime
         self._bus = bus
         self._memory = memory
+        self._config = config
         self._peer = peer
         self._features = list(features)
         self._peer_server: "PeerServer | None" = None
@@ -161,6 +168,8 @@ class CoreService:
             "playlist_add": self._playlist_add,
             "playlist_remove": self._playlist_remove,
             "playlist_move": self._playlist_move,
+            "get_settings": lambda params: {"settings": asdict(self._config)},
+            "update_settings": self._update_settings,
         }
         # A core with no peer identity carries no peer surface, so those methods read as unknown.
         if self._peer is not None:
@@ -276,6 +285,23 @@ class CoreService:
     def _playlist_move(self, params: dict[str, Any]) -> dict[str, Any]:
         playlist = self._library.playlist_move(_integer(params, "entry_id"), _integer(params, "to_index"))
         return {"playlist": playlist.to_dict()}
+
+    def _update_settings(self, params: dict[str, Any]) -> dict[str, Any]:
+        values = params.get("values")
+        if not isinstance(values, dict):
+            raise invalid_argument("'values' must be an object")
+        try:
+            checked = {key: check_setting(key, value) for key, value in values.items()}
+        except ValueError as failure:
+            raise invalid_argument(str(failure))
+        changed = [key for key, value in checked.items() if getattr(self._config, key) != value]
+        if changed:
+            updated = replace(self._config, **checked)
+            save(updated)
+            self._config = updated
+            if "shuffle_method" in changed:
+                self._controller.set_shuffle_method(ShuffleMethod(updated.shuffle_method))
+        return {"settings": asdict(self._config), "restart_required": [key for key in changed if key not in LIVE_SETTINGS]}
 
     # Peers
 

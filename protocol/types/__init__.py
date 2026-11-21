@@ -23,6 +23,7 @@ from protocol.types.request import Request
 from protocol.types.response import Response
 from protocol.types.scan_phase import ScanPhase
 from protocol.types.session_state import SessionState
+from protocol.types.shuffle_method import ShuffleMethod
 from protocol.types.song import Song
 from protocol.types.source import Source
 from protocol.types.source_kind import SourceKind
@@ -53,6 +54,7 @@ __all__ = [
     "Response",
     "ScanPhase",
     "SessionState",
+    "ShuffleMethod",
     "Song",
     "Source",
     "SourceKind",

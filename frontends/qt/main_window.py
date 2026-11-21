@@ -28,6 +28,7 @@ from frontends.qt.widgets.job_bar import JobBar
 from frontends.qt.widgets.name_editor import NameEditor
 from frontends.qt.widgets.player_bar import PlayerBar
 from frontends.qt.widgets.queue_view import QueueView
+from frontends.qt.widgets.settings_dialog import SettingsDialog
 from frontends.qt.widgets.sidebar import Sidebar
 from frontends.qt.widgets.song_table import BUTTON_COLUMN_WIDTH, SongTable
 from frontends.qt.widgets.song_editor import SongEditor
@@ -65,6 +66,7 @@ class MainWindow(FramelessMainWindow):
         self._rate = 0.0
         self._book = PeerBook(client)
         self._devices: DevicesDialog | None = None
+        self._settings: SettingsDialog | None = None
 
         self.setWindowTitle("DeltaMusic")
         self.setWindowIcon(app_icon())
@@ -120,6 +122,7 @@ class MainWindow(FramelessMainWindow):
         self._status = self.titleBar.status
         self._search.textChanged.connect(self._on_search_typed)
         self.titleBar.devices.clicked.connect(self._open_devices)
+        self.titleBar.settings.clicked.connect(self._open_settings)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -456,6 +459,13 @@ class MainWindow(FramelessMainWindow):
         self._devices.show()
         self._devices.raise_()
         self._devices.activateWindow()
+
+    def _open_settings(self) -> None:
+        if self._settings is None:
+            self._settings = SettingsDialog(self._client, self)
+        self._settings.show()
+        self._settings.raise_()
+        self._settings.activateWindow()
 
     def _on_forget_peer(self, peer_id: str) -> None:
         name = self._book.peer_name(peer_id)

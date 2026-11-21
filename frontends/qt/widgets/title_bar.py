@@ -97,6 +97,13 @@ class ApplicationTitleBar(_ThemedTitleBar):
         self.devices.setFixedSize(30, 26)
         self.devices.setCursor(Qt.CursorShape.PointingHandCursor)
 
+        self.settings = QPushButton()
+        self.settings.setObjectName("iconButton")
+        self.settings.setIcon(icon("settings", TEXT, DEVICES_ICON_SIZE))
+        self.settings.setToolTip("Settings")
+        self.settings.setFixedSize(30, 26)
+        self.settings.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.status = QLabel("")
         self.status.setObjectName("status")
         self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -110,6 +117,7 @@ class ApplicationTitleBar(_ThemedTitleBar):
         row.addSpacing(BRAND_CLEARANCE)
         row.addWidget(self.search)
         row.addWidget(self.devices)
+        row.addWidget(self.settings)
         row.addStretch(1)
         row.addWidget(self.status)
 

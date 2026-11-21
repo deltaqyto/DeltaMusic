@@ -18,6 +18,7 @@ from core.runtime import Runtime
 from core.service import CoreService
 from core.session import SessionMemory
 from entry.paths import CONFIG_DIR
+from protocol.types.shuffle_method import ShuffleMethod
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def build_core(config: Config, engine: PlaybackEngine | None = None) -> CoreServ
     bus = EventBus()
     memory = SessionMemory()
     library = Library(config.database_path, config.library_path, bus, config.private_library)
-    controller = PlaybackController(library, engine, bus, config.initial_volume)
+    controller = PlaybackController(library, engine, bus, config.initial_volume, ShuffleMethod(config.shuffle_method))
     runtime = Runtime(library, controller, bus, config.audio_extensions, memory)
 
     # The engine reports on its own thread.
@@ -37,7 +38,7 @@ def build_core(config: Config, engine: PlaybackEngine | None = None) -> CoreServ
     engine.on_failed(lambda message: runtime.post(lambda: controller.on_track_failed(message)))
 
     peer = _build_peer(config, bus, library, runtime)
-    service = CoreService(library, controller, runtime, bus, memory, peer, _features(config))
+    service = CoreService(library, controller, runtime, bus, memory, config, peer, _features(config))
     if peer is not None:
         server = PeerServer(service, peer.identity, peer.registry, peer.discovery, peer.pairing, config.peer_port)
         service.use_peer_server(server)

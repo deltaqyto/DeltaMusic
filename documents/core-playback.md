@@ -63,9 +63,13 @@ Only a fresh `play_playlist` or `play_songs` gives the queue a source again.
 
 The refill tops the queue up to 20 entries ahead of the cursor and counts `user` entries toward that total.
 
-`shuffle` decides how a refill picks. Off, it takes the source in order from where it left off. On, each song is drawn at random from the whole source, so repeats are possible.
+`shuffle` decides how a refill picks. Off, it takes the source in order from where it left off. On, `shuffle_method` decides.
 
-Changing `shuffle` discards the autofill tail and draws it again the new way. The history, the current song and every `user` entry are left alone.
+- `true_random` - each song is drawn at random from the whole source, so repeats are possible (default).
+- `avoid_repeats` - the source is shuffled once into a deck, and the refill draws from the deck until it is empty. It then shuffles the whole source into a new deck. The first draw excludes the current track to avoid a repeat
+
+A new deck leaves out the song being played and any user entries. A new source, or a change to `shuffle` or `shuffle_method`, will regenerate the deck.
+Changing `shuffle` or `shuffle_method` discards the autofill tail and re-draws it.
 
 Shuffle is incompatible with no refill, since there is no defined end. Bind the two as shown:
 

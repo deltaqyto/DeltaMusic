@@ -15,6 +15,7 @@ from protocol.types.queue_entry import QueueEntry
 from protocol.types.queue_origin import QueueOrigin
 from protocol.types.queue_state import QueueState
 from protocol.types.repeat_mode import RepeatMode
+from protocol.types.shuffle_method import ShuffleMethod
 from protocol.types.source import Source
 from protocol.types.source_kind import SourceKind
 
@@ -28,7 +29,14 @@ MAX_CONSECUTIVE_FAILURES = 10
 class PlaybackController:
     """The queue, the cursor, repeat, and shuffle."""
 
-    def __init__(self, library: Library, engine: PlaybackEngine, bus: EventBus, initial_volume: float = 0.8):
+    def __init__(
+        self,
+        library: Library,
+        engine: PlaybackEngine,
+        bus: EventBus,
+        initial_volume: float = 0.8,
+        shuffle_method: ShuffleMethod = ShuffleMethod.TRUE_RANDOM,
+    ):
         self._library = library
         self._engine = engine
         self._bus = bus
@@ -40,10 +48,13 @@ class PlaybackController:
         self._source: Source | None = None
         self._source_ids: list[int] = []
         self._source_next = 0
+        # Pre-shuffled source for playback mode `avoid_repeats`. Filled on first draw
+        self._deck: list[int] | None = None
 
         self._status = PlaybackStatus.IDLE
         self._repeat = RepeatMode.PLAYLIST
         self._shuffle = False
+        self._shuffle_method = shuffle_method
         self._volume = min(1.0, max(0.0, initial_volume))
         self._duration = 0.0
         self._failures = 0
@@ -138,13 +149,19 @@ class PlaybackController:
         if self._shuffle and self._repeat is RepeatMode.NONE:
             self._repeat = RepeatMode.PLAYLIST
         if self._shuffle != was:
-            # What is already queued was drawn the old way, so it is thrown out and drawn again.
-            self._flush_ahead()
-            self._maintain()
-            self._bus.queue_changed()
+            self._deck = None
+            self._redraw_ahead()
         else:
             self._maintain_and_publish()
         return self._announce()
+
+    def set_shuffle_method(self, method: ShuffleMethod) -> None:
+        if method is self._shuffle_method:
+            return
+        self._shuffle_method = method
+        self._deck = None
+        if self._shuffle:
+            self._redraw_ahead()
 
     def set_volume(self, level: float) -> PlaybackState:
         self._volume = min(1.0, max(0.0, float(level)))
@@ -163,6 +180,7 @@ class PlaybackController:
         self._source = Source(kind=SourceKind.PLAYLIST, playlist_id=playlist_id)
         self._source_ids = song_ids
         self._source_next = start
+        self._deck = None
         # Only the chosen song goes in. The refill takes it from there, so a huge playlist is not copied.
         self._load_queue([song_ids[start]], paused, strict=True)
         return self._announce()
@@ -175,6 +193,7 @@ class PlaybackController:
         self._source = Source(kind=SourceKind.SONGS, playlist_id=None)
         self._source_ids = known
         self._source_next = 0
+        self._deck = None
         self._load_queue([known[0]], paused, strict=True)
         return self._announce()
 
@@ -227,6 +246,7 @@ class PlaybackController:
         self._source = None
         self._source_ids = []
         self._source_next = 0
+        self._deck = None
         return self._queue_edited()
 
     # Engine reports, posted in from the engine thread
@@ -340,6 +360,7 @@ class PlaybackController:
         self._source = None
         self._source_ids = []
         self._source_next = 0
+        self._deck = None
         self._stop_playback()
         self._bus.queue_changed()
 
@@ -424,6 +445,11 @@ class PlaybackController:
         """Throws away the autofill tail."""
         del self._queue[self._user_boundary() :]
 
+    def _redraw_ahead(self) -> None:
+        self._flush_ahead()
+        self._maintain()
+        self._bus.queue_changed()
+
     def _maintain(self) -> bool:
         """Trim the history and refill. Report whether the queue moved."""
         cursor = self._cursor()
@@ -456,6 +482,8 @@ class PlaybackController:
             self._bus.queue_changed()
 
     def _draw(self) -> int:
+        if self._shuffle and self._shuffle_method is ShuffleMethod.AVOID_REPEATS:
+            return self._draw_from_deck()
         if self._shuffle:
             return random.choice(self._source_ids)
         if self._source_next >= len(self._source_ids):
@@ -463,3 +491,27 @@ class PlaybackController:
         song_id = self._source_ids[self._source_next]
         self._source_next += 1
         return song_id
+
+    def _draw_from_deck(self) -> int:
+        if self._deck is None:
+            # Adopt any upcoming items
+            cursor = self._cursor()
+            upcoming = [entry.song_id for entry in self._queue[cursor:]] if cursor >= 0 else []
+            self._deck = self._shuffled_source(upcoming)
+        if not self._deck:
+            self._deck = self._shuffled_source()
+        return self._deck.pop()
+
+    def _shuffled_source(self, skip: Sequence[int] = ()) -> list[int]:
+        deck = list(self._source_ids)
+        for song_id in skip:
+            if song_id in deck:
+                deck.remove(song_id)
+        random.shuffle(deck)
+        # Make sure there are no song repeats on the draw seam
+        last = self._queue[-1].song_id if self._queue else None
+        if deck and deck[-1] == last:
+            other = next((index for index, song_id in enumerate(deck) if song_id != last), None)
+            if other is not None:
+                deck[other], deck[-1] = deck[-1], deck[other]
+        return deck

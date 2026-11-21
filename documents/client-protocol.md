@@ -206,6 +206,20 @@ Either command returns the resulting `playback`, so a client reads both values b
 
 `list_playlists` returns each playlist without `entries` and with a `song_count`.
 
+### Settings
+
+| Command           | Params   | Result                         |
+|-------------------|----------|--------------------------------|
+| `get_settings`    |          | `settings`                     |
+| `update_settings` | `values` | `settings`, `restart_required` |
+
+- `settings` holds all fields of `Config` under the names used in the json.
+- `values` is an object of the fields to change. any invalid fields or invalid data gives a `INVALID_ARGUMENT` and makes no change.
+- `update_settings` writes `config.json` and returns the full `settings`.
+- `restart_required` lists changed fields that core reads once on startup
+- `shuffle_method` is `true_random` or `avoid_repeats`, described in [core-playback.md](core-playback.md).
+- Both commands are local-only
+
 ## Events
 
 | Type              | Payload                            | Sent when                             |
