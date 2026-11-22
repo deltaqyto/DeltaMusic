@@ -27,6 +27,7 @@ class SessionWatcher(SessionSource):
         self._app_id = app_id.strip()
         self._manager = None
         self._warned_missing = False
+        self._last_seen: Optional[list] = None
 
     @property
     def app_id(self) -> str:
@@ -80,7 +81,20 @@ class SessionWatcher(SessionSource):
         )
 
     def _find_session(self, manager):
-        for session in manager.get_sessions():
-            if session.source_app_user_model_id == self._app_id:
+        sessions = list(manager.get_sessions())
+        wanted = self._app_id.casefold()
+        for session in sessions:
+            if session.source_app_user_model_id.casefold() == wanted:
                 return session
+
+        # Packaged apps report "Package_hash!App", so fall back to the name without its extension.
+        stem = wanted.removesuffix(".exe")
+        for session in sessions:
+            if stem in session.source_app_user_model_id.casefold():
+                return session
+
+        seen = sorted(session.source_app_user_model_id for session in sessions)
+        if seen != self._last_seen:
+            log.info("no session matches %r; sessions present: %s", self._app_id, seen or "none")
+            self._last_seen = seen
         return None
